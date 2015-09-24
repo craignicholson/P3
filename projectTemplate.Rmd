@@ -1,0 +1,468 @@
+White Wine Analysis by Craig Nicholson
+================================================================================
+What features create a good tasting white wine?
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, packages}
+# Load all of the packages that you end up using
+# in your analysis in this code chunk.
+
+# Notice that the parameter "echo" was set to FALSE for this code chunk.
+# This prevents the code from displaying in the knitted HTML output.
+# You should set echo=FALSE for all code chunks in your file.
+library(scales)
+library(ggplot2)
+library(gridExtra)
+library(dplyr)
+library(RColorBrewer)
+```
+
+```{r echo=FALSE, Load_the_Data}
+# Load the Data
+setwd("/Users/cn/rcode/P3")
+ww <- read.csv("wineQualityWhites.csv")
+```
+
+
+# Correlation of the features
+```{r echo=FALSE, message=FALSE, Multicollinearity}
+# A correlation matrix of the variables
+# Step one - inspect the data for correlation so we can avoid
+# Multicollinearity
+# https://en.wikipedia.org/wiki/Multicollinearity
+ww_correlations <- round(cor(ww), 2)
+
+```
+
+## Moderate to Strongly Correlated
+These features are the ones we want to avoid adding to the linear model  
+- fixed.acidity <> pH  
+- volatile.acidity  
+- citric.acid <> volatile.acidity    
+- residual.sugar <> free.sulfur.dioxide, total.sulfur.dioxide, density .84, alchohol  
+- chlorides <> none  
+- free.sulfur.dioxide <> residual.sugar , total.sulfur.dioxide .64, density, alchohol  
+- total.sulfur.dioxide <> residual.sugar , free.sulfur.dioxide .62, density, alchohol  
+- density <> volatile.acidity  ,residual.sugar , free.sulfur.dioxide, total.sulfur.dioxide, alcohol  
+- pH <> volatile.acidity   
+- sulphates <> NONE  
+- alchohol <> residual.sugar , chlorides, free.sulfur.dioxide, total.sulfur.dioxide, density   .78
+
+### Choices for Linear Regression
+- (+) sulphates   
+- (+) alcohol  
+- (-) volatile.acidity   
+
+
+```{r echo=FALSE, Linear_Regression}
+# http://www.cookbook-r.com/Statistical_analysis/Regression_and_correlation/
+# http://www.statmethods.net/stats/rdiagnostics.html 
+intercept               <-  2.8030 
+sulphates_coef          <-  0.4157
+alcohol_coef            <-  0.3250
+volatile.acidity_coef   <- -1.9629 
+
+# Add predicated values to dataset
+ww$quality_predicated <- intercept +
+                          sulphates_coef*ww$sulphates +
+                          alcohol_coef*ww$alcohol   + 
+                          volatile.acidity_coef*ww$volatile.acidity
+
+# calculate the residuals
+ww$residuals <- ww$quality_predicated - ww$quality
+
+```
+## Linear Model Results
+
+### Coefficients
+     (Intercept)         sulphates           alcohol  volatile.acidity  
+          2.8030            0.4157            0.3250           -1.9629 
+
+### Summary Of the Model
+    Residuals:
+        Min      1Q  Median      3Q     Max 
+    -3.3186 -0.4854 -0.0406  0.4914  3.1555 
+    
+    Coefficients:
+                      Estimate Std. Error t value Pr(>|t|)    
+    (Intercept)       2.802988   0.109706  25.550  < 2e-16 ***
+    sulphates         0.415712   0.096580   4.304 1.71e-05 ***
+    alcohol           0.325028   0.008972  36.229  < 2e-16 ***
+    volatile.acidity -1.962858   0.109589 -17.911  < 2e-16 ***
+    ---
+    Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+    
+    Residual standard error: 0.7707 on 4894 degrees of freedom
+    Multiple R-squared:  0.2431,	Adjusted R-squared:  0.2426 
+    F-statistic: 523.9 on 3 and 4894 DF,  p-value: < 2.2e-16
+
+
+## Residual Plots
+```{r echo=FALSE, Residuals_plots}
+
+ggplot(data = ww, aes(x = residuals)) + 
+      geom_histogram(binwidth=0.25, color = 'black', fill = '#333333') +
+      ggtitle("Histogram of Residuals - White Wine Linear Model")
+
+residual_plot <- ggplot(ww, aes(x=X, y=residuals)) + geom_line(alpha = 0.75)
+residual_plot + geom_hline(aes(yintercept=0)) + ggtitle("Residuals")        
+
+```
+
+### Summary of the Residuals
+```{r echo=FALSE, Residuals_DescriptiveStats}
+summary(ww$residuals)
+```
+
+### Q-Q Plot of Residuals
+```{r echo=FALSE, QQPlot}
+# http://stats.stackexchange.com/questions/52293/r-qqplot-how-to-see-whether-data-are-normally-distributed      
+qqnorm(ww$residuals); qqline(ww$residuals)  
+
+```
+
+The deviations from the straight line are minimal. This indicates normal distribution.  There is some variation around the tails.
+
+
+# Univariate Plots Section
+The goal here is to focus on a set of defined features:  
+
+- sulphates
+- alcohol
+- citric acid 
+- residual sugar levels
+- volatile acidity 
+
+
+```{r echo=FALSE, message=FALSE, Univariate_Plots}
+# Review the distrubutions of each feature
+# http://docs.ggplot2.org/current/geom_histogram.html
+volatile.acidity <- ggplot(data = ww, aes(x = volatile.acidity )) + 
+     geom_histogram(binwidth=0.01, color = 'black', fill = '#333333') 
+
+residual.sugar <- ggplot(data = ww, aes(x = residual.sugar )) + 
+     geom_histogram(binwidth=0.5, color = 'black', fill = '#333333') 
+
+density <- ggplot(data = ww, aes(x = density)) + 
+     geom_histogram(binwidth=0.001, color = 'black', fill = '#333333') 
+
+sulphates <- ggplot(data = ww, aes(x = sulphates)) + 
+     geom_histogram(binwidth=0.1, color = 'black', fill = '#333333') 
+  
+alcohol <- ggplot(data = ww, aes(x = alcohol)) + 
+     geom_histogram(binwidth=0.5, color = 'black', fill = '#333333') 
+
+quality <- ggplot(data = ww, aes(x = quality)) + 
+     geom_histogram(binwidth=1, color = 'black', fill = '#333333') 
+
+grid.arrange(volatile.acidity, residual.sugar, density,
+             sulphates, alcohol, quality,
+             ncol=4)
+
+```
+
+# Univariate Analysis
+
+### What is the structure of your dataset?
+```{r echo=FALSE}
+str(ww)
+```
+
+### What is/are the main feature(s) of interest in your dataset?
+
+- Quality (score between 0 and 10)  
+- Sulphates: a wine additive which can contribute to sulfur dioxide gas (S02) levels, which acts as an antimicrobial and antioxidant
+- Alcohol: the percent alcohol content of the wine
+- Volatile acidity: the amount of acetic acid in wine, which at too high of levels can lead to an unpleasant, vinegar taste
+
+SO2 plays a very important role in preventing oxidization and maintaining a wine’s freshness
+
+Sweet wines get the biggest doses because sugar combines with and binds a high proportion of any SO2 added. To get the same level of free sulphur dioxide, the total concentration has to be higher than for dry wines.
+http://www.morethanorganic.com/sulphur-in-the-bottle
+
+
+Reference: text document from the dataset
+
+### What other features in the dataset do you think will help support your investigation into your feature(s) of interest?
+
+- citric acid: found in small quantities, citric acid can add 'freshness' and flavor to wines
+- total sulfur dioxide: amount of free and bound forms of S02; in low concentrations, SO2 is mostly undetectable in wine, but at free SO2 concentrations over 50 ppm, SO2 becomes evident in the nose and taste of wine
+- residual sugar: the amount of sugar remaining after fermentation stops, it's rare to find wines with less than 1 gram/liter and wines with greater than 45 grams/liter are considered sweet  
+- free sulfur dioxide: the free form of SO2 exists in equilibrium between molecular SO2 (as a dissolved gas) and bisulfite ion; it prevents microbial growth and the oxidation of wine
+
+
+### Did you create any new variables from existing variables in the dataset?
+Yes, new varibles have been added to the dataset.
+- predicited values for quality
+- residuals
+- Let's create a ratio with a couple of variables ...  has to be meaningful
+
+### Of the features you investigated, were there any unusual distributions? Did you perform any operations on the data to tidy, adjust, or change the form of the data? If so, why did you do this?
+
+Yes.  I would make the quality a factor and remove the factor.  A few plots work better
+when the quality was a factor instead of integer.
+
+
+
+# Bivariate Plots Section
+
+## Plots with Negative Slopes
+```{r echo=FALSE, Bivariate_Plots}
+# These plots require Quality to be an 'int' and not a factor
+
+ggplot(data = ww, aes(x = quality, y = volatile.acidity )) +
+  geom_jitter(alpha = 1, aes(colour = quality))  +
+  theme(axis.text.x = element_text(angle=45)) +
+  scale_x_discrete(breaks = c(1, 2, 3,4,5, 6,7,8,9,10)) +
+  labs(title="volatile.acidity ") +
+  geom_smooth(method='lm', color='red')
+
+# Citric Acid stays stable... so leave this one out of Linear Model
+ggplot(data = ww, aes(x = quality, y = citric.acid)) +
+  geom_jitter(alpha = 1, aes(colour = quality))  +
+  theme(axis.text.x = element_text(angle=45)) +
+  scale_x_discrete(breaks = c(1, 2, 3,4,5, 6,7,8,9,10)) +
+  labs(title="citric.acid") +
+  geom_smooth(method='lm', color='red')
+
+# Sugars are good, maybe more sugar == better quality, note sugar is 
+# correlated with other features in the data as noted above
+ggplot(data = ww, aes(x = quality, y = residual.sugar)) +
+  geom_jitter(alpha = 1, aes(colour = quality))  +
+  theme(axis.text.x = element_text(angle=45)) +
+  scale_x_discrete(breaks = c(1, 2, 3,4,5, 6,7,8,9,10)) +
+  labs(title="residual.sugar") +
+  geom_smooth(method='lm', color='red')
+
+```
+
+The Residual Sugar plot was a surprise.  It seems that the sweeter the wine due to more sugar
+the lower the quality wlll be of the wine.
+
+### Plots with Postive Slopes
+
+```{r echo=FALSE, Bivarte_Plots_PositiveSlope}
+# POSTIVE SLOPES
+ggplot(data = ww, aes(x = quality, y = pH )) +
+  geom_jitter(alpha = 1, aes(colour = quality))  +
+  theme(axis.text.x = element_text(angle=45)) +
+  scale_x_discrete(breaks = c(1, 2, 3,4,5, 6,7,8,9,10)) +
+  labs(title="pH ") +
+  geom_smooth(method='lm', color='red')
+
+ggplot(data = ww, aes(x = quality, y = sulphates )) +
+  geom_jitter(alpha = 1, aes(colour = quality))  +
+  theme(axis.text.x = element_text(angle=45)) +
+  scale_x_discrete(breaks = c(1, 2, 3,4,5, 6,7,8,9,10)) +
+  labs(title="sulphates ") +
+  geom_smooth(method='lm', color='red')
+
+ggplot(data = ww, aes(x = quality, y = alcohol )) +
+  geom_jitter(alpha = 1, aes(colour = quality))  +
+  theme(axis.text.x = element_text(angle=45)) +
+  scale_x_discrete(breaks = c(1, 2, 3,4,5, 6,7,8,9,10)) +
+  labs(title="alcohol ") +
+  geom_smooth(method='lm', color='red')
+```
+
+```{r echo=FALSE, Additional_Plots}
+ggplot(data=ww,aes(x=sulphates, y=alcohol)) + 
+  geom_point(alpha=.5, color = 'blue') +
+  scale_x_continuous(breaks = c(0, 0.5)) 
+```
+
+# Bivariate Analysis
+
+### Talk about some of the relationships you observed in this part of the investigation. How did the feature(s) of interest vary with other features in the dataset?
+
+We had features which had negative slopes and features which had postive slopes when compared with quality.
+
+### Did you observe any interesting relationships between the other features (not the main feature(s) of interest)?
+
+Yes/No
+
+### What was the strongest relationship you found?
+
+Alcohol and Quality.  
+
+
+# Multivariate Plots Section
+
+## Plot Section 1 - Needs Title and More Analysis
+```{r echo=FALSE, Multivariate_Plots}
+# These plots need quality to be a factor
+ww$quality <- factor(ww$quality)
+
+# alcohol & residual.sugar
+ggplot(data = ww, aes(x=residual.sugar, y=alcohol)) +
+  geom_point(aes(color=quality), size=2, position='jitter') +
+  scale_x_continuous() +
+  scale_y_continuous() +
+  scale_color_manual(values=rev(brewer.pal(7,"Reds")),
+                     guide = guide_legend(title="Quality",
+                                          overide.aes=list(size=7))) +
+  ggtitle("") +
+  xlab("residual.sugar")+
+  ylab("alchohol")
+
+# Let's try a function and some transformations...
+library(scales)
+cuberoot_trans = function() trans_new("cuberoot",
+                                      transform = function(x)x^(1/3),
+                                      inverse = function(x)x^3)
+
+squareroot_trans = function() trans_new("squareroot",
+                                      transform = function(x)x^(1/2),
+                                      inverse = function(x)x^2)
+
+square_trans = function() trans_new("square",
+                                      transform = function(x)x^2,
+                                      inverse = function(x)x^(1/2))
+
+# volatile.acidity & sulphates
+ggplot(data = ww, aes(x= volatile.acidity, y=sulphates)) +
+  geom_point(aes(color=quality), size=2, position='jitter') +
+  scale_x_continuous(trans=squareroot_trans()) +
+  scale_y_continuous(trans=squareroot_trans()) +
+  scale_color_manual(values=rev(brewer.pal(7,"PuBu")),
+                     guide = guide_legend(title="Quality",
+                                          reverse=T,
+                                          overide.aes=list(size=7))) +
+  ggtitle("") +
+  xlab("volatile.acidity")+
+  ylab("sulphates")
+
+# sulphates & alcohol, group quality (squareroot_trans)
+ggplot(data = ww, aes(x= sulphates, y=alcohol)) +
+  geom_point(aes(color=quality), size=2, position='jitter') +
+  scale_x_continuous(trans=squareroot_trans()) +
+  scale_y_continuous(trans=squareroot_trans()) +
+  scale_color_brewer(type="seq") +
+  ggtitle("") +
+  xlab("sulphates")+
+  ylab("alcohol")
+
+# sulphates & alcohol, group quality (squareroot_trans)
+ggplot(data = ww, aes(x= volatile.acidity, y=sulphates)) +
+  geom_point(aes(color=quality), size=2, position='jitter') +
+  scale_x_continuous(trans=squareroot_trans()) +
+  scale_y_continuous(trans=squareroot_trans()) +
+  scale_color_brewer(type="seq") +
+  ggtitle("") +
+  xlab("volatile.acidity")+
+  ylab("sulphates")
+
+
+```
+
+## Multiple Plots Grouped by Quality
+```{r}
+# multiple plots of quality by sulphates & alcohol
+ggplot(data = ww, aes(x = sulphates)) +
+  facet_wrap(~quality) + 
+  geom_point(aes(y = alcohol), colour = "black",
+             fill = "black", size = 3, alpha = .5) +
+  theme(axis.text.x = element_text(angle=45)) 
+```
+
+# Multivariate Analysis
+
+### Talk about some of the relationships you observed in this part of the investigation. Were there features that strengthened each other in terms of looking at your feature(s) of interest?
+
+Features that strenghten each other... are we we discussing highly correlated values where a rise in one feature causes a rise in the correlated feature?  Or we we trying to convey something else here?
+
+### Were there any interesting or surprising interactions between features?
+
+The plots are a mess right now
+
+### OPTIONAL: Did you create any models with your dataset? Discuss the strengths and limitations of your model.
+
+Yes.  I created a linear model.
+
+
+#### Results for Linear Regression
+Results listed above.
+
+
+------
+
+# Final Plots and Summary
+
+### Plot One
+```{r echo=FALSE, Plot_One}
+
+```
+
+### Description One
+
+
+### Plot Two
+```{r echo=FALSE, Plot_Two}
+
+```
+
+### Description Two
+
+
+### Plot Three
+```{r echo=FALSE, Plot_Three}
+
+```
+
+### Description Three
+
+------
+
+# Reflection
+
+We had a low number of low quality and high quality rated wines in this dataset.
+
+
+For instance, the citric acid and residual sugar levels are more important in
+white wine.
+
+Moreover, the volatile acidity has a negative impact, since
+acetic acid is the key ingredient in vinegar. The most intriguing result is the
+high importance of sulphates, ranked first for both cases. Oenologically this
+result could be very interesting. An increase in sulphates might be related to
+the fermenting nutrition, which is very important to improve the wine aroma.
+
+```{r echo=FALSE, factor_reverse}
+ww$quality <- as.numeric(as.character(ww$quality))
+
+```
+
+
+
+# References
+
+MIT Results
+sulphates - 23%
+alcohol - 14%
+residual sugar - 13%
+citric acid  - 10%
+total sulfur dioxide  9%
+free sulfur dioxide 8.5%
+volatile acidity 8%
+density 7%
+pH  6%
+chlorides 3%
+fixed acidity  2%
+
+
+Pearson’s r-correlation 
+If r =	+.70 or higher	Very strong positive relationship 
++.40 to +.69	Strong positive relationship 
++.30 to +.39	Moderate positive relationship 
++.20 to +.29	weak positive relationship 
++.01 to +.19	No or negligible relationship 
+-.01 to -.19	No or negligible relationship 
+-.20 to -.29	weak negative relationship 
+-.30 to -.39	Moderate negative relationship 
+-.40 to -.69	Strong negative relationship 
+-.70 or higher	Very strong negative relationship
+
+Reference:
+http://faculty.quinnipiac.edu/libarts/polsci/Statistics.html
+
+
+
