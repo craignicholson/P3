@@ -6,10 +6,10 @@ params:
   dayOfAnalysis: !r as.Date("2016-03-02")
   pfHigh: 0.99
   pfLow: 0.98
-  voltageLow: 114
-  voltageHigh: 126
-  voltageLowLimit: 100
-  voltageMaxLimit: 140
+  voltageLow: 114.0
+  voltageHigh: 126.0
+  voltageLowLimit: 100.0
+  voltageMaxLimit: 140.0
 ---
 
 ## Abstract
@@ -60,7 +60,7 @@ a power factor below some limit, which is typically 0.9 to 0.95. Engineers
 are often interested in the power factor of a load as one of the factors that 
 affect the efficiency of power transmission.
 
-#### More Definitions
+#### Definitions
 Since the units are consistent, the power factor is by definition a dimensionless number between −1 and 1. When power factor is equal to 0, the energy flow is entirely reactive and stored energy in the load returns to the source on each cycle. When the power factor is 1, all the energy supplied by the source is consumed by the load.
 
 Power factors are usually stated as "leading" or "lagging" to show the sign of the
@@ -92,7 +92,7 @@ library(lubridate)    # working with dates
 ```
 
 ```{r Set Working Directory}
-setwd("/Users/cn/rcode/substation/")
+setwd("/Users/cn/rcode/P3/")
 ```
 
 ```{r Load_the_Parameters}
@@ -126,9 +126,9 @@ trim <- function (x) gsub("^\\s+|\\s+$", "", x)
 ```{r Load_the_Data - Raw Dataset Descriptions}
 # Load the Data
 # read date is in local time
-powerfactor_raw <- read.csv("data/pf.csv")
-voltage_raw <- read.csv("data/voltagereads.csv")
-substations <- read.csv("substations_list.csv")
+powerfactor_raw <- read.csv("data/backup/pf.csv")
+voltage_raw <- read.csv("data/voltage_anon.csv")
+substations <- read.csv("substations_list_anon.csv")
 
 # Descriptions of the datasets - 'raw' mean uncleaned and not validated
 # voltage_raw  - 15 min Intervals
@@ -150,16 +150,6 @@ substations <- read.csv("substations_list.csv")
 #   station  : 4 Charcter Desc of substation in this system (SCADA System)
 #   substationName: string of full substation name
 #   prettyName: string of full substation name
-```
-
-## Structure of Voltage Data
-```{r Structure - Voltage Original}
-str(voltage_raw)
-```
-
-## Structure of Power Factor Data
-```{r Structure - Power Factor Original}
-str(powerfactor_raw)
 ```
 
 ```{r Remove Duplicates from voltage_raw and powerfactor_raw}
@@ -255,6 +245,7 @@ powerfactor_clean_all <- left_join(powerfactor_clean_all, substations,
 powerfactor <- spread(powerfactor_clean_all, name, ReadValue)
 
 # rename the columns
+# TODO: If the pivot cols are missing code fails
 powerfactor <- dplyr::rename(powerfactor, 
                   mw=PMWD3D, 
                   mvar.delivered=PMQD3D, 
@@ -284,7 +275,7 @@ powerfactor$h <- as.numeric(powerfactor$h)
 ```
 
 ```{r Power Factor calcualte MVARs}
-# Calculate the total MVARs which is the total used or 
+# Calculate the total MVARs which is the total used 
 # (mvar.delivered-mvar.received)
 # mvar.received can be .na, when this occurs just use the mvar.delievered
 powerfactor$mvar <- ifelse(!is.na(powerfactor$mvar.received), 
@@ -364,7 +355,24 @@ powerfactor_tidy <- arrange(powerfactor_tidy, substationName, dtReadDate)
 
 ```
 
-
+```{r powerfactor_tidy add a cut for the pf ranges}
+# When bucketing this data, I think all we really care
+# about is the actual range without the direction since
+# we are interested in finding the most intervals in 
+# the narrow range , (.98 to 1 to .98), so we can
+# ignore pfChart and the direction
+# we want the most of our values in the 0.98, 1 range
+powerfactor_tidy$pf.range <-cut(powerfactor_tidy$pf, 
+              breaks=c(0,.88,.90,.92,.94,.96,.98,1),
+              labels=c("(0,0.88.]",
+                       "(0.88,0.90]", 
+                       "(0.90,0.92]", 
+                       "(0.92,0.94]",
+                       "(0.94,0.96]",
+                       "(0.96,0.98]",
+                       "(0.98,1]"))
+              
+```
 
 ```{r Votlage Date Formatting}
 voltage_clean_all$dtReadDate <- parse_date_time(voltage_clean_all$readdate, 
@@ -439,6 +447,9 @@ voltage_tidy <- voltage_clean_all[c("substationName",
                           "VoltsHalf",
                           "voltage.bucket")]
 
+# meter is a factor
+voltage_tidy$meter <- factor(voltage_tidy$meter)
+
 # sort the data
 voltage_tidy <- arrange(voltage_tidy, substationName, meter, dtReadDate)  
 ```
@@ -489,51 +500,40 @@ summary_voltage <- voltage_tidy %>%
              v.max = max(VoltsHalf), 
              v.sem = sd(VoltsHalf)/sqrt(length(VoltsHalf)),
              v.meters = length(unique(meter)),
-             v.n = n())  %>% 
+             v.intervals = n())  %>% 
   arrange(substationName, dtReadDay, h)
 ```
 
-```{r Summarise powerfactor_tidy to the hour - summary_pf}
-# Some stations will not have data in powerfactor_tidy
-# I think this contains the same values as powerfactor_tidy
-# needs a review
-summary_pf <- powerfactor_tidy %>%
-  group_by(substationName, dtReadDay, h, desc)  %>%
-  summarise( pf.min = min(pf),            
-             pf.mean = mean(pf),
-             pf.median = median(as.numeric(pf)),
-             pf.std.dev = sd(pf),
-             pf.varience = var(pf),
-             pf.max = max(pf), 
-             pf.sem = sd(pf)/sqrt(length(pf)),
-             mw  = sum(mw),
-             mvar  = sum(mvar),
-             pfc.min = min(pfChart),            
-             pfc.mean = mean(pfChart),
-             pfc.median = median(as.numeric(pfChart)),
-             pfc.max = max(pfChart), 
-             pf.n = n())  %>% 
-  arrange(substationName, dtReadDay, h, desc)
-```
-
-```{r Create summary_total from Merging summary_pf and summary_voltage to the hour}
+```{r Create summary_total from Merging powerfactor_tidy and summary_voltage to the hour}
+# summary_total contains data aggregated to the hour
+# summary voltage data is aggreagted from 15min to the hour
+# leaving off the meters
 summary_total <- left_join(summary_voltage, powerfactor_tidy, 
                    by= c("substationName", "dtReadDay", "h"))
 
+
+summary_total$isLag <- ifelse(summary_total$desc == "Lagging",1,0)
+summary_total$isLead <- ifelse(summary_total$desc == "Leading",1,0)
 ```
 
 ```{r Summarise summary_total to the day by desc - summary_total_day}
-# Notes, I need to remove desc because the shifted value
-# for the pfc (power factor chart value), will plot
-# the value correctly on the chart without needing the 
-# desc categorical value (lagging and leading)
+# Aggregate the data to the day for each substation
+# Add count of the number of hours leading and lagging
+# Examining the lagging and leading Power Factor to the day is 
+# 'good enougth' for this analysis since we are losing fidelity.
+# and power factor is typical measure as close to real time as 
+# possible.
+# We can determine if the day had any leading or lagging values
+# when the pfc.values do not match the pf.values, this means
+# at least one hour for the day was Leading or Lagging... 
+
 summary_total_day <- summary_total %>%
   group_by(substationName, dtReadDay)  %>%
   summarise( v.min = min(v.min),
              v.mean = mean(v.mean),
              v.median = median(v.median),
              v.max = max(v.max), 
-             v.n   = sum(v.n),
+             v.intervals   = sum(v.intervals),
              v.meters = max(v.meters),
              pf.min = min(pf),            
              pf.mean = mean(pf),
@@ -544,7 +544,11 @@ summary_total_day <- summary_total %>%
              pfc.min = min(pfChart),            
              pfc.mean = mean(pfChart),
              pfc.median = median(pfChart),
-             pfc.max = max(pfChart)) %>% 
+             pfc.max = max(pfChart),
+             pf.lag.total = sum(isLag),
+             pf.lead.total = sum(isLead)
+             
+             ) %>% 
   arrange(substationName, dtReadDay)
 
 ```
@@ -556,6 +560,19 @@ summary_total_day <- summary_total %>%
 summary_total_day$desc <- ifelse(summary_total_day$mvar < 0, 
                                  'Leading', 
                                  'Lagging')
+```
+
+```{r summary_total_day - Add ranges }
+# Calculate the ranges for voltage and power factor
+# the idea is to see if the voltage range is lower
+# and narrower as well when the power factor has a
+# narrower range and maintains a close approximation
+# to one when either lagging or leading
+# TODO I think this will not work, and what I need
+# is to cut with a range of pfChart values or pf values
+# and indicator or lagging and leading
+summary_total_day$v.range <- summary_total_day$v.max - summary_total_day$v.min
+summary_total_day$pf.range <- summary_total_day$pfc.max - summary_total_day$pf.min
 
 ```
 
@@ -618,7 +635,7 @@ ggplot(data = voltage_tidy,aes(x = VoltsHalf)) +
 
 ```
 
-```{r Univariate_Plots Voltage Facet hour and substation, fig.width=12, fig.height=12}
+```{r Univariate_Plots Voltage Facet Day and Substation, fig.width=12, fig.height=12}
 ggplot(data = voltage_tidy,aes(x = VoltsHalf)) + 
   geom_histogram(binwidth=0.5, color = 'black', fill = '#333333') + 
   theme_bw(base_family= 'Helvetica') +
@@ -635,7 +652,12 @@ ggplot(data = voltage_tidy,aes(x = VoltsHalf)) +
 
 ```
 
-```{r Univariate_Plots Voltage Facet hour and substation free scales, fig.width=12, fig.height=12}
+```{r Univariate_Plots Voltage Facet hour and substation lenght calc}
+height = length(unique(voltage_tidy$substationName))
+height = height / 4
+```
+
+```{r Univariate_Plots Voltage Hist Facet Substation free scales, fig.width=12, fig.height=len}
 ggplot(data = voltage_tidy,aes(x = VoltsHalf)) + 
   geom_histogram(binwidth=0.5, color = 'black', fill = '#333333') + 
   theme_bw(base_family= 'Helvetica') +
@@ -644,7 +666,6 @@ ggplot(data = voltage_tidy,aes(x = VoltsHalf)) +
                 as.character(length(unique(voltage_tidy$dtReadDay))),
                 "days combined")) +
   xlab("voltage")
-
 ```
 
 ## Power Factor
@@ -682,7 +703,7 @@ ggplot(data=powerfactor_tidy[!is.na(powerfactor_tidy$pfChart), ]
 ggplot(data=powerfactor_tidy[!is.na(powerfactor_tidy$pfChart), ]
             ,aes(x = pfChart, fill=desc)) + 
   geom_histogram(binwidth=0.002, color = 'black') +
-  facet_wrap(~substationName, ncol=3) +
+  facet_wrap(~substationName, ncol=3, scales = "free_y") +
   theme_bw(base_family= 'Helvetica') + 
   theme(legend.position="bottom") + 
   theme(legend.title=element_blank())+
@@ -743,37 +764,40 @@ ggplot(data = powerfactor_tidy,aes(x = mw)) +
 
 # Univariate Analysis
 ### What is the structure of your dataset?
-#### Power Factor
-The power factor dataset contains 10,800 obs. of 4 variables which are readings
-taken every 60 minutes.  
-* ReadValue: num  
-* station  : 4 Charcter Desc of substation in this system (SCADA System)  
-* name     : Unit of Measure  
-  * mega watt  
-  * mvars delievered  
-  * mvars received  
-* ReadDate : string in yyyy-mm-dd hh:mm:ss format  
 
-`r str(powerfactor_raw)`
+### Voltage Dataset
+The voltage dataset contains endpoints collecting readings
+every 15 minutes.
 
-#### Voltage  
-The power factor dataset contains 3,033,369 obs. of 4 variables which are 
-readings taken every 15 minutes.
-* readdate: string in yyyy-mm-dd hh:mm:ss format  
-* Voltage : integer  
-* substationName: string of full substation name  
-* meter   : integer  
+```{r Structure of voltage_tidy}
+str(voltage_tidy,give.attr = FALSE)
+```
 
-The readings for each meter occur every 15 minutes.
+### Power Factor Dataset
+The power factor dataset contains endpoints collecting readings
+every 60 minutes.
 
-`r str(voltage_raw)`
+```{r Structure of powerfactor_tidy}
+str(powerfactor_tidy)
+```
 
-#### Substations  
-* station  : 4 Charcter Desc of substation in this system (SCADA System)
-* substationName: string of full substation name
-* prettyName: string of full substation name
+### Substation Dataset
+Used for mapping the Voltage and Power Factor datasets together.
 
-`r str(substations)`
+```{r Structure of substations}
+str(substations)
+```
+
+
+### Structure of Voltage Data - uncleaned
+```{r Structure - Voltage Original}
+str(voltage_raw)
+```
+
+### Structure of Power Factor - uncleaned
+```{r Structure - Power Factor Original}
+str(powerfactor_raw)
+```
 
 ```{r Remove Voltage Staging Tables}
 rm(voltage_raw, voltage_clean_all)
@@ -783,23 +807,6 @@ rm(voltage_raw, voltage_clean_all)
 rm(powerfactor_raw, powerfactor_clean_all, powerfactor)
 ```
 
-
-### Tidy Datasets
-
-#### Voltage Dataset
-```{r Structure of voltage_tidy}
-str(voltage_tidy)
-```
-
-#### Power Factor Dataset
-```{r Structure of powerfactor_tidy}
-str(powerfactor_tidy)
-```
-
-#### Substation Dataset
-```{r Structure of substations}
-str(substations)
-```
 ### What is/are the main feature(s) of interest in your dataset?
 Voltage and Power Factor by time interval for each deliver point (substation)
 are the main features. One goal is to determine if we can predict power factor.
@@ -836,23 +843,23 @@ New variables where created for these datasets:
 
 ### Of the features you investigated, were there any unusual distributions? 
 
-Williamsport and Mt Pleasent have bimodel distibutions of voltage.
+Austin and Dallas have bimodel distibutions of voltage.
 
 ```{r willamsport and mtpleasant hist , fig.width=12, fig.height=6}
-willamsport <-
-  ggplot(data = subset(voltage_tidy, substationName=="WILLIAMSPORT"),aes(x = VoltsHalf)) + 
+austin <-
+  ggplot(data = subset(voltage_tidy, substationName=="AUSTIN"),aes(x = VoltsHalf)) + 
   geom_histogram(binwidth=0.5, color = 'black', fill = '#333333') + 
   theme_bw(base_family= 'Helvetica') +
-  ggtitle("WILLIAMSPORT (bin=0.5)") +
+  ggtitle("AUSTIN (bin=0.5)") +
   xlab("voltage")
 
-mtpleasant <-ggplot(data = subset(voltage_tidy, substationName=="MT PLEASANT"),aes(x = VoltsHalf)) + 
+dallas <-ggplot(data = subset(voltage_tidy, substationName=="DALLAS"),aes(x = VoltsHalf)) + 
   geom_histogram(binwidth=0.5, color = 'black', fill = '#333333') + 
   theme_bw(base_family= 'Helvetica') +
-  ggtitle("MT PLEASANT (bin=0.5)") +
+  ggtitle("DALLAS (bin=0.5)") +
   xlab("voltage")
 
-grid.arrange(willamsport, mtpleasant, ncol=2)
+grid.arrange(austin, dallas, ncol=2)
 
 ```
 
@@ -929,7 +936,7 @@ ggplot(data=voltage_tidy[!is.na(voltage_tidy$VoltsHalf), ],
     geom_hline(yintercept = voltageHigh, color='blue') +
     geom_hline(yintercept = voltageLow, color='blue') +
     theme(axis.text.x=element_text(angle = -90, hjust = 0)) +
-    ggtitle("Boxplot of Voltage by Substation" ) 
+    ggtitle("Boxplot of Substation Voltage by Day" ) 
 
 ggplot(data=voltage_tidy[!is.na(voltage_tidy$VoltsHalf), ], 
        aes(x=factor(h), y=VoltsHalf)) +
@@ -953,7 +960,7 @@ ggplot(data=voltage_tidy[!is.na(voltage_tidy$VoltsHalf), ],
     geom_hline(yintercept = voltageHigh, color='blue') +
     geom_hline(yintercept = voltageLow, color='blue') +
     theme(axis.text.x=element_text(angle = -90, hjust = 0)) +
-    ggtitle("Boxplot of Voltage by hour for Substations" ) 
+    ggtitle("Boxplot of Substation Voltage by hour " ) 
 
 ```
 
@@ -981,20 +988,10 @@ ggplot(data=voltage_tidy, aes(x=hm, y=VoltsHalf)) +
 
 ```
 
+##### Dallas Substation Daily Voltage By Hour
 ```{r Voltage Scatter Plot by Substation Facet with alpha, fig.width=10, fig.height=14}
-# TOO MUCH NOISE
-# ggplot(data=voltage_tidy, aes(x=hm, y=VoltsHalf)) +
-#   geom_point(alpha=1/5) + 
-#   facet_wrap(~ substationName, ncol = 3) +
-#   scale_x_discrete(breaks=c("00:00","06:00","12:00","18:00","23:00")) +
-#   facet_wrap(~ dtReadDay, ncol = 3) + 
-#   xlab("hr:min") +
-#   ylab("voltage") +
-#   theme_bw(base_family= 'Helvetica')  +
-#   theme(axis.text.x = element_text(angle = -90, hjust = 0)) +
-#   ggtitle("Voltage by Time (hour:min)" )
 
-ggplot(data=subset(voltage_tidy,substationName == "BOYNTON VALLEY"), aes(x=hm, y=VoltsHalf)) +
+ggplot(data=subset(voltage_tidy,substationName == "DALLAS"), aes(x=hm, y=VoltsHalf)) +
   geom_point(alpha=1/5) + 
   facet_wrap(~ dtReadDay, ncol = 3) +
   scale_x_discrete(breaks=c("00:00","06:00","12:00","18:00","23:00")) +
@@ -1002,8 +999,7 @@ ggplot(data=subset(voltage_tidy,substationName == "BOYNTON VALLEY"), aes(x=hm, y
   ylab("voltage") +
   theme_bw(base_family= 'Helvetica')  +
   theme(axis.text.x = element_text(angle = -90, hjust = 0)) +
-  ggtitle("BOYNTON VALLEY Voltage by Time (hour:min)" )
-
+  ggtitle("DALLAS Voltage by Time (hour:min)" )
 
 ```
 
@@ -1015,6 +1011,42 @@ of each other.
 It takes 5 points on top of each other to make a solid point on this chart.  
 This demonstrates how the data is spread out over the ranges through the day 
 by hour.
+
+We can see there seems to be one metering point with high voltage which is
+consistently above the other voltage readings.
+
+```{r Summary per meter}
+meter_summary_volts <- subset(voltage_tidy,substationName == "DALLAS") %>%
+  group_by(meter, dtReadDay)  %>%
+  summarise( v.min = min(VoltsHalf),
+             v.mean = mean(VoltsHalf),
+             v.median = median(VoltsHalf),
+             v.max = max(VoltsHalf), 
+             v.intervals   = n()
+             ) %>% 
+  arrange(meter, dtReadDay)
+```
+
+##### Dallas Substation Meters
+If we search all the meters on the Dallas substation, and sort descending
+by voltage we can obtain a list of meters with the highest voltage.
+```{r}
+kable(head(meter_summary_volts[order(desc(meter_summary_volts$v.max)),],
+           3,digits=2))
+```
+
+```{r Find the meter with the issue}
+ggplot(data=subset(voltage_tidy,meter == 300686)
+       , aes(x=hm, y=VoltsHalf)) +
+  geom_point(alpha=1/5) + 
+  facet_wrap(~ dtReadDay, ncol = 3) +
+  scale_x_discrete(breaks=c("00:00","06:00","12:00","18:00","23:00")) +
+  xlab("hr:min") +
+  ylab("voltage") +
+  theme_bw(base_family= 'Helvetica')  +
+  theme(axis.text.x = element_text(angle = -90, hjust = 0)) +
+  ggtitle("Meter 300686 Voltage by Time" )
+```
 
 ##### Voltage Descriptive Statistics
 ```{r Voltage Summary}
@@ -1114,19 +1146,17 @@ ggplot(data=load_hour_totals, aes(x=h, y=mw.total)) +
   ylab("MW") +
   theme_bw(base_family= 'Helvetica')
 
-
-
-ggplot(data=load_hour_totals, aes(x=h, y=mvarsquared.total)) +
-  geom_line() +
-  ggtitle("(Mega VAR)^2 by Hour - Total System" ) +
-  ylab("(Mega VAR)^2") +
-  theme_bw(base_family= 'Helvetica')
-
 ggplot(data=load_hour_totals, aes(x=h, y=mvar.total)) +
   geom_line() +
   ggtitle("Mega VAR by Hour - Total System" ) +
   geom_hline(yintercept = 0, color='red') +
   ylab("MVARs") +
+  theme_bw(base_family= 'Helvetica')
+
+ggplot(data=load_hour_totals, aes(x=h, y=mvarsquared.total)) +
+  geom_line() +
+  ggtitle("(Mega VAR)^2 by Hour - Total System" ) +
+  ylab("(Mega VAR)^2") +
   theme_bw(base_family= 'Helvetica')
 
 # ggplot(data=load_hour_totals, aes(x=h, y=pf.min)) +
@@ -1148,7 +1178,8 @@ ggplot(data=load_hour_totals, aes(x=h, y=mvar.total)) +
 
 
 ```{r Mega Watts By Substation By Hour, fig.width=12, fig.height=14}
-ggplot(data=powerfactor_tidy[!is.na(powerfactor_tidy$mw), ], aes(x=h, y=mw)) +
+ggplot(data=powerfactor_tidy[!is.na(powerfactor_tidy$mw), ]
+       , aes(x=h, y=mw, colour = factor(dtReadDay))) +
   geom_point() + 
   facet_wrap(~substationName, scales = 'free', ncol=3) +
   ggtitle("Mega Watt Scatter Plot by Substation" ) +
@@ -1159,6 +1190,7 @@ ggplot(data=powerfactor_tidy[!is.na(powerfactor_tidy$mw), ], aes(x=h, y=mw)) +
 # Meters using the highest percent of the entire load
 # Meters using the highest load for each substation... 
 ```
+The multiple points are the 11 days we have in this dataset.
 
 ### Power Factor Plots
 
@@ -1220,7 +1252,7 @@ ggplot(data=powerfactor_tidy[!is.na(powerfactor_tidy$pfChart), ],
 #### Scatter Plots
 ```{r Power Factor By Hour Scatter Plot,fig.width=12, fig.height=6}
 ggplot(data=powerfactor_tidy, aes(x=h, y=pfChart)) +
-  geom_point(size=1) + 
+  geom_point(position=position_jitter(w=0.5, h=0), alpha=1/5) + 
     scale_y_continuous(limits = c(0.90, 1.10),
                         breaks=c(0.92,.94,.96,.98,1,1.02,1.04,1.06,1.08),
                         labels=c(".92",".94", ".96", ".98","1", ".98", ".96",".94",".92")) +  
@@ -1230,7 +1262,38 @@ ggplot(data=powerfactor_tidy, aes(x=h, y=pfChart)) +
   geom_hline(yintercept=1) +
   xlab("hour") +
   ylab("power factor") +
-  ggtitle("Power Factor by Hour") +
+  ggtitle("Power Factor by Hour Scatter") +
+  theme_bw(base_family= 'Helvetica') +
+  theme(legend.position="bottom")
+```
+
+```{r Power Factor By Hour Scatter Plot Facet Day,fig.width=12, fig.height=6}
+ggplot(data=powerfactor_tidy, aes(x=h, y=pfChart)) +
+  geom_point(position=position_jitter(w=0.5, h=0), alpha=1/5) + 
+  scale_y_continuous(limits = c(0.90, 1.10),
+                        breaks=c(0.92,.94,.96,.98,1,1.02,1.04,1.06,1.08),
+                        labels=c(".92",".94", ".96", ".98","1", ".98", ".96",".94",".92")) +  
+  facet_wrap(~dtReadDay, ncol = 3) +
+  geom_hline(yintercept=1) +
+  xlab("hour") +
+  ylab("power factor") +
+  ggtitle("Power Factor by Hour Scatter Facet Day") +
+  theme_bw(base_family= 'Helvetica') +
+  theme(legend.position="bottom")
+```
+
+```{r Power Factor By Hour Scatter Plot Facet Day Dallas,fig.width=12, fig.height=6}
+ggplot(data=subset(powerfactor_tidy, substationName=="DALLAS"), 
+       aes(x=h, y=pfChart)) +
+  geom_line() + 
+  scale_y_continuous(limits = c(0.88, 1.12),
+                        breaks=c(0.92,.94,.96,.98,1,1.02,1.04,1.06,1.08),
+                        labels=c(".92",".94", ".96", ".98","1", ".98", ".96",".94",".92")) +  
+  facet_wrap(~dtReadDay, ncol = 3) +
+  geom_hline(yintercept=1) +
+  xlab("hour") +
+  ylab("power factor") +
+  ggtitle("Dallas Power Factor by Hour Facet Day") +
   theme_bw(base_family= 'Helvetica') +
   theme(legend.position="bottom")
 ```
@@ -1253,9 +1316,14 @@ grid.arrange(v1, v2, ncol = 2)
 
 ### Voltage.Mean vs [MW, MVAR, Power Factor]
 ```{r Voltage vs MW MVAR PowerFactor, fig.width=12, fig.height=4}
+
+# log2, log2, sqrt, 
 vm1 <- 
   ggplot(data=summary_total,aes(x=mw, y=v.mean)) + 
   geom_point(alpha=1/2, color = 'green') +
+  
+  #scale_x_sqrt() +
+  #cale_y_sqrt() +
   theme_bw(base_family= 'Helvetica') 
 
 vm2 <- 
@@ -1344,19 +1412,25 @@ Meters where more than 4 intervals below the `r voltageLow` volts threshold.
 ```{r Voltage by Hour for By Meter less than 114 having, fig.width=12, fig.height=10}
 # filter the list for meters where count > 4
 # would be helpful to know the subtation
+# this needs to be reworked because we have multiple days
+# need to sort by the lowest offenders and then pick
+# 9 meters to show...
 
-meters114 <- subset(substation_meter_review_114, count>4)
+meters114 <- subset(substation_meter_review_114, 
+                    count>4)
 meters <- voltage_tidy[(voltage_tidy$meter %in% meters114$meter),]
 
-ggplot(data=subset(meters, substationName=='CHAPEL HILL'), 
-       aes(x=hm, y=VoltsHalf, color=substationName)) +
+
+
+ggplot(data=subset(meters, substationName=='HIGHLAND PARK' & meter == 301146), 
+       aes(x=hm, y=VoltsHalf, color=factor(dtReadDay))) +
   geom_point() + 
   facet_wrap(~ meter, ncol = 3) +
   scale_x_discrete(breaks=c("00:00","06:00","12:00","18:00","23:00")) +
   xlab("hr:min") +
   theme_bw(base_family= 'Helvetica')  +
   theme(axis.text.x = element_text(angle = -90, hjust = 0)) +
-  ggtitle("Voltage by hour (hour:min), Less than nominal meters" ) +
+  ggtitle("Austin Voltage by hour, Less than nominal meters" ) +
   geom_hline(yintercept = 114, color='red') +
   theme(legend.position="bottom") +
   theme(legend.title=element_blank()) +
@@ -1412,7 +1486,7 @@ ggplot(data=meters_intervals_128, aes(x=hm, y=VoltsHalf, color=substationName)) 
 
 #### Top Top 10 Substations Meter Counts for High Voltage Meters
 
-```{r}
+```{r substation_meter_review_128 table data}
 
 kable(head(substation_meter_review_128,10), digits=2)
 #TODO How do we determine if the one interval or group of them are significant
@@ -1795,11 +1869,117 @@ Counts of the voltage instances in each bucketed range.
 summary(voltage_tidy$voltage.bucket)
 ```
 
-##### Voltage Bucket Data
-```{r Summary Of Voltage Bucket Table Data By Substation - substation_bucket_review table}
-# output to table
-kable(substation_bucket_review)
+```{r Summary Of Voltage Bucket Table Data By Day - substation_bucket_review}
+# Review the total counts for voltage in each substation this goes with scatter plots 
+# in bivar. or multivariate data
+substation_bucket_day_review <-
+  voltage_tidy %>% 
+    group_by(dtReadDay, substationName, voltage.bucket) %>% 
+    summarise(count = n())  %>% 
+        arrange(dtReadDay, substationName, voltage.bucket)
 
+# pivot the data for easy review
+substation_bucket_day_review <- spread(substation_bucket_day_review, voltage.bucket, count)
+
+```
+
+```{r substation_bucket_day_review add meta data to the dataset}
+# calculate interval totals, TODO: need to check of .na values here
+substation_bucket_day_review$total <- substation_bucket_day_review$`(0,114]` +
+  substation_bucket_day_review$`(114,120]` +
+  substation_bucket_day_review$`(120,126]` +
+  substation_bucket_day_review$`(126,140]`
+
+# calculate the percent for each bucket
+substation_bucket_day_review$p1 <- 
+  100*(substation_bucket_day_review$`(0,114]`/substation_bucket_day_review$total)
+
+substation_bucket_day_review$p2 <- 
+  100*(substation_bucket_day_review$`(114,120]`/substation_bucket_day_review$total)
+
+substation_bucket_day_review$p3 <- 
+  100*(substation_bucket_day_review$`(120,126]`/substation_bucket_day_review$total)
+
+substation_bucket_day_review$p4 <- 
+  100*(substation_bucket_day_review$`(126,140]`/substation_bucket_day_review$tota)
+
+```
+
+##### Voltage Bucket Data By Day
+```{r Summary Of Voltage Bucket Table Data By Day - substation_bucket_review table}
+# output to table
+kable(substation_bucket_day_review)
+
+```
+
+
+#### Compare Voltage and Power Factor Range Counts
+```{r Totalize up the pf ranges}
+# MIGHT NEED THIS BY SUBSTATION AS WELL 
+powerfactor_ranges_day <-
+  powerfactor_tidy %>% 
+    group_by(dtReadDay, substationName, pf.range) %>% 
+    summarise(count = n())  %>% 
+        arrange(dtReadDay, substationName, pf.range)
+
+# pivot the data for easy review
+powerfactor_ranges_day <- spread(subset(powerfactor_ranges_day, !is.na(pf.range)), pf.range, count)
+
+```
+
+```{r DEAD END}
+range_counts <- left_join(powerfactor_ranges_day,
+                          substation_bucket_day_review, 
+                          by= c("dtReadDay", "substationName"))
+
+# subset the columns I want
+range_counts <- range_counts[,1:13]
+
+test <- gather(range_counts, "pf.range", "pf.n", 3:9)
+test <- gather(test, "v.range", "v.n", 3:6)
+
+ggplot(data = subset(test,!is.na(v.n)), aes(x=v.range, y=v.n))+
+  geom_point(position=position_jitter(w=0.3, h=1), alpha=1/5) 
+
+ggplot(data = subset(test,!is.na(v.n)), aes(x=v.range, y=v.n))+
+  geom_point(position=position_jitter(w=0.3, h=1), alpha=1/5) +
+  facet_wrap(~substationName)
+
+ggplot(data = subset(test,!is.na(v.n)), aes(x=v.range, y=v.n))+
+  geom_point(position=position_jitter(w=0.3, h=1), alpha=1/5) +
+  facet_wrap(~dtReadDay)
+
+###
+
+ggplot(data = subset(test,!is.na(pf.n)), aes(x=pf.range, y=pf.n))+
+  geom_point(position=position_jitter(w=0.3, h=1), alpha=1/5) 
+
+ggplot(data = subset(test,!is.na(pf.n)), aes(x=pf.range, y=pf.n))+
+  geom_point(position=position_jitter(w=0.3, h=1), alpha=1/5) +
+  facet_wrap(~substationName)
+
+ggplot(data = subset(test,!is.na(pf.n)), aes(x=pf.range, y=pf.n))+
+  geom_point(position=position_jitter(w=0.3, h=1), alpha=1/5) +
+  facet_wrap(~dtReadDay)
+
+###
+ggplot(data = subset(test,!is.na(pf.n)), aes(x=pf.range, y=pf.n))+
+  geom_point(position=position_jitter(w=0.3, h=1), alpha=1/5) 
+
+
+range_totals <-
+  test %>% 
+    group_by(dtReadDay, substationName, pf.range, v.range) %>% 
+    summarise(v.n = sum(v.n, na.rm=TRUE),
+              pf.n= sum(pf.n,na.rm=TRUE))  %>% 
+        arrange(dtReadDay, substationName, pf.range,v.range)
+
+
+
+```
+
+```{r LAST HOP}
+#ggplot(data = substation_bucket_day_review, aes(x = dtReadDay, y=p1)
 ```
 
 This chart demonstrates how the voltage can vary on the lower and upper ends of the voltage ranges.
@@ -1825,7 +2005,7 @@ follow a similar trend here.  They have similar shapes.  Or at least
 when the power factor range increases the voltage drops less in
 the system.  This could be for many reasons.
 
-```{r}
+```{r Compare Voltage and Power Factor}
 voltagehour <-
   ggplot(data = voltage_tidy, aes(x=h, y=VoltsHalf))+
   geom_point(aes(color=voltage.bucket), size=1, position='jitter', alpha=.75)+
@@ -1865,11 +2045,59 @@ grid.arrange(p1, p2, ncol=1)
 
 
 # Models
-Predict Power Factor... is the goal
-### OPTIONAL: Did you create any models with your dataset? Discuss the strengths 
-and limitations of your model.
+One idea to be explored is if we can predict when the power factor will 
+go below 0.98 lagging or leading.  This could help us change the system parameters to keep the network in operating efficiency.
+## Goals
+* Create model for each substation to predict when power factor goes below 0.98 based on the
+hourly readings.  If we can predict at a minimum 2 hours ahead this would be idea. The initial
 
-------
+```{r Linear Model using powerfactor_sort }
+# pf = kw / SQRT(kw^2 + kvar^2)  
+# m1 <- lm(I(log(price)) ~ I(carat^(1/3)), data = powerfactor_columns_sort)
+# how about adding voltage as well... 
+m1 <- lm(pf ~ I(sqrt(mw)), data = powerfactor_sort)
+m2 <- update(m1, ~ . + mw)
+m3 <- update(m1, ~ . + mvar)
+m4 <- update(m2, ~ . + h)
+m5 <- update(m3, ~ . + desc)
+
+mtable(m1, m2, m3, m4, m5)
+```
+
+
+## Linear Model Test
+Expected Result : 0.9903636
+```{r Linear Model Test}
+load = data.frame(mw = 16.140,
+                  mvar = 2.257,
+                  h = 22, 
+                  desc="Lagging")
+
+
+pf_estimate = predict(m5, newdata = load,
+                        interval="prediction", level = .95)
+
+pf_estimate
+```
+
+### Summary
+```{r lm summary}
+summary(m5)
+```
+
+### Anova
+```{r lm anova}
+anova(m5)
+```
+
+### Residual Plots
+```{r Residuals Plot}
+plot(m5)
+```
+
+
+
+## Discuss the strengths and limitations of your model.
 
 # Final Plots and Summary
 Are the final three plots varied and do they meet some of the following criteria:  
@@ -2094,7 +2322,7 @@ grid.arrange(plot1, plot2, plot3, plot4, ncol = 2)
 
 ```
 
-```{r KTabletotalSummary}
+```{r summary_total_day table data, include=FALSE}
 
 kable(summary_total_day[c("dtReadDay",
                           "substationName",
@@ -2177,9 +2405,9 @@ heatmap_voltage_15min <-
 heatmap_voltage_15min +
  geom_tile(colour="white") +
  scale_fill_gradient2(
-                      midpoint=mean(voltage_tidy$VoltsHalf),
-                      limits=c(min(voltage_tidy$VoltsHalf)
-                               ,max(voltage_tidy$VoltsHalf))) +
+                      midpoint=122,
+                      limits=c(100
+                               ,130)) +
  theme_bw(base_family= 'Helvetica')  +
  theme(axis.text.x = element_text(angle = -90, hjust = 0, size = 8))  +
  theme(legend.title=element_blank()) +
@@ -2193,7 +2421,9 @@ heatmap_voltage_15min +
  heatmap_voltage_hour_min <-
    ggplot(summary_voltage, aes(y=substationName, x=h, fill=v.min))
 
-heatmap_voltage_hour_min + geom_tile(colour="white") +
+heatmap_voltage_hour_min + 
+ #geom_raster() +  
+ geom_tile(colour="white") +
  scale_fill_gradient2(
                       midpoint=mean(summary_voltage$v.min),
                       limits=c(min(summary_voltage$v.min)
@@ -2239,7 +2469,7 @@ heatmap_powerfactor_hour +
 Description goes here please... Note, I think I have a better plot to put here, this
 one kinda goes along with Plot_One, it is just another form of the plot.
 
-```{r, fig.width=12, fig.height=8}
+```{r Plot Three, fig.width=12, fig.height=8}
 ggplot(data = powerfactor_tidy, aes(x = h, y = pfChart, color=desc)) + 
   geom_point(size = 0.5, position = 'jitter') +
   scale_y_continuous(limits = c(0.94, 1.06),
@@ -2260,6 +2490,11 @@ Total
 # Reflection
 The section explains any important decisions in the analysis and how those 
 decisions affected the analysis.
+
+Need to make sure to handle cases when data is missing from a day 
+over a few date ranges.
+
+Automate additional processes.
 
 ## Voltage
 Voltage seems to be normally like distributed by the hour through out the 
