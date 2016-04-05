@@ -16,7 +16,8 @@ params:
 I will describe the votlage, megawatts, megavars (receieved and delivered),
 and power factor (lagging and leading) in terms of the electricity. Key goals
 are to understand substations and meters with regards to voltage
-and power factor as well as megawatts and megavars.
+and power factor as well as megawatts and megavars and to review the relatioship
+between power factor and voltage.
 
 ## Introduction
 Electric utilities collect meter readings in time intervals in various units. 
@@ -28,43 +29,43 @@ overheat, burn up, and possibly explode.
 
 
 ### Power Factor
-A negative power factor (Lagging) occurs when the device (which is normally 
+"A negative power factor (Lagging) occurs when the device (which is normally 
 the load) generates power, which then flows back towards the source, which 
-is normally considered the generator.
+is normally considered the generator."[1]
 
-In an electric power system, a load with a **low power** factor draws more 
+"In an electric power system, a load with a **low power** factor draws more 
 current than a load with a high power factor for the same amount of useful 
-power transferred. 
+power transferred. The higher currents increase the energy lost in the 
+distribution system, and require larger wires and other equipment. Because 
+of the costs of larger equipment and wasted energy, electrical utilities will 
+usually charge a higher cost to industrial or commercial customers where there 
+is a low power factor." [1]
 
-The higher currents increase the energy lost in the distribution system, 
-and require larger wires and other equipment. Because of the costs of 
-larger equipment and wasted energy, electrical utilities will usually 
-charge a higher cost to industrial or commercial customers where there 
-is a low power factor.
-
-Power factors **below 1.0** require a utility to generate more than the 
+"Power factors **below 1.0** require a utility to generate more than the 
 minimum volt-amperes necessary to supply the real power (watts).  
 This increases generation and transmission costs. For example, if the 
 load power factor were as low as 0.7, the apparent power would be 1.4 
 times the real power used by the load. Line current in the circuit would 
 also be 1.4 times the current required at 1.0 power factor, so the losses 
-in the circuit would be doubled 
+in the circuit would be doubled." [1]
 (**since they are proportional to the square of the current**). 
 
-Alternatively all components of the system such as generators, conductors, 
+"Alternatively all components of the system such as generators, conductors, 
 transformers, and switchgear would be increased in size (and cost) 
-to carry the extra current.
+to carry the extra current." [1]
 
-Utilities typically charge additional costs to commercial customers who have 
+"Utilities typically charge additional costs to commercial customers who have 
 a power factor below some limit, which is typically 0.9 to 0.95. Engineers 
 are often interested in the power factor of a load as one of the factors that 
-affect the efficiency of power transmission.
+affect the efficiency of power transmission." [1]
 
 #### Definitions
 Since the units are consistent, the power factor is by definition a dimensionless number between −1 and 1. When power factor is equal to 0, the energy flow is entirely reactive and stored energy in the load returns to the source on each cycle. When the power factor is 1, all the energy supplied by the source is consumed by the load.
 
 Power factors are usually stated as "leading" or "lagging" to show the sign of the
-phase angle. Capacitive loads are leading (current leads voltage) and supply power, and inductive loads are lagging (current lags voltage) and consume power.
+phase angle. Capacitive loads are **leading** (current leads voltage) and supply power, and inductive loads are **lagging** (current lags voltage) and consume power.
+
+A negative power factor (0 to -1) can result from returning power to the source, such as in the case of a building fitted with solar panels when their power is not being fully utilised within the building and the surplus is fed back into the supply.[1]
 
 
 ```{r Setup knitr, echo=FALSE}
@@ -226,7 +227,7 @@ powerfactor_clean_all <- left_join(powerfactor_clean_all, substations,
 #   mvars (mvar.delivered - mvar.received)
 #   mwsquared
 #   mvarsquared
-#   desc (Lagging or Leading)
+#   desc (Lagging or Leading) - the sign of the phase angle
 #   hm (hour:min)
 #   pfChart Shifted Value for Leading using formula listed below
 #
@@ -235,6 +236,7 @@ powerfactor_clean_all <- left_join(powerfactor_clean_all, substations,
 # Multiple variables are stored in one column.
 # Multiple types of observational units are stored in the same table.
 # A single observational unit is stored in multiple tables
+
 
 ```
 
@@ -274,7 +276,7 @@ powerfactor$hm <- format(as.POSIXct(powerfactor$dtReadDate + minutes(15),
 powerfactor$h <- as.numeric(powerfactor$h)
 ```
 
-```{r Power Factor calcualte MVARs}
+```{r Power Factor calculate MVARs}
 # Calculate the total MVARs which is the total used 
 # (mvar.delivered-mvar.received)
 # mvar.received can be .na, when this occurs just use the mvar.delievered
@@ -290,8 +292,13 @@ powerfactor$desc <- ifelse(powerfactor$mvar < 0, 'Leading' , 'Lagging')
 powerfactor$desc <- factor(powerfactor$desc) 
 ```
 
-```{r Power Factor - Calculate Power Factor}
-# Calculate the power factor using formuals below
+```{r Power Factor - Calculate Power Factor and VoltAmpere}
+# VA =  sqrt((powerfactor$mw^2 + powerfactor$mvar^2))
+# VA = (mw^2 + (mvar)^2) 
+# this is what we have to generate to provide the mwatts
+powerfactor$va <-  sqrt((powerfactor$mw^2 + powerfactor$mvar^2))
+
+# Calculate the power factor using formuals below - Ratio
 # Power Factor = kw / (kw^2 + (mvar.delivered-mvar.received)^2)  
 # Power Factor = mw / (mw^2 + (mvar)^2)  
 powerfactor$pf <- powerfactor$mw / 
@@ -347,11 +354,12 @@ powerfactor_tidy <- powerfactor[c("substationName",
                               "mvar", 
                               "mwsquared",
                               "mvarsquared",
+                              "va",
                               "pf", 
                               "pfChart", 
                               "desc")]
 # sort the data
-powerfactor_tidy <- arrange(powerfactor_tidy, substationName, dtReadDate)  
+powerfactor_tidy <- arrange(powerfactor_tidy, substationName, dtReadDate) 
 
 ```
 
@@ -610,6 +618,7 @@ summary(voltage_tidy$VoltsHalf)
 
 ggplot(data = voltage_tidy,aes(x = VoltsHalf)) + 
   geom_histogram(binwidth=0.5, color = 'black', fill = '#333333') + 
+  coord_trans(x="log2") +
   theme_bw(base_family= 'Helvetica') +
   ggtitle("Histogram of Voltage (bin=0.5)") +
   xlab("voltage")
@@ -642,13 +651,6 @@ ggplot(data = voltage_tidy,aes(x = VoltsHalf)) +
   facet_wrap(~dtReadDay, ncol = 4) +
   ggtitle("Histogram of Voltage By Day (bin=0.5)") +
   xlab("voltage")
-
-# ggplot(data = voltage_tidy,aes(x = VoltsHalf)) + 
-#   geom_histogram(binwidth=0.5, color = 'black', fill = '#333333') + 
-#   theme_bw(base_family= 'Helvetica') +
-#   facet_wrap(~substationName, ncol = 4) +
-#   ggtitle("Histogram of Voltage By Substation (bin=0.5)") +
-#   xlab("voltage")
 
 ```
 
@@ -921,8 +923,8 @@ ggplot(data=voltage_tidy[!is.na(voltage_tidy$VoltsHalf), ],
     theme_bw(base_family= 'Helvetica') +
     theme(legend.position="bottom") +
     xlab("") +
-    geom_hline(yintercept = voltageHigh, color='blue') +
-    geom_hline(yintercept = voltageLow, color='blue') +
+    geom_hline(yintercept = voltageHigh, color='blue',alpha=0.5) +
+    geom_hline(yintercept = voltageLow, color='blue',alpha=0.5) +
     theme(axis.text.x=element_text(angle = -90, hjust = 0)) +
     ggtitle("Boxplot of Voltage by Substation" ) 
 
@@ -933,8 +935,8 @@ ggplot(data=voltage_tidy[!is.na(voltage_tidy$VoltsHalf), ],
     theme_bw(base_family= 'Helvetica') +
     theme(legend.position="bottom") +
     xlab("") +
-    geom_hline(yintercept = voltageHigh, color='blue') +
-    geom_hline(yintercept = voltageLow, color='blue') +
+    geom_hline(yintercept = voltageHigh, color='blue',alpha=0.5) +
+    geom_hline(yintercept = voltageLow, color='blue',alpha=0.5) +
     theme(axis.text.x=element_text(angle = -90, hjust = 0)) +
     ggtitle("Boxplot of Substation Voltage by Day" ) 
 
@@ -944,8 +946,8 @@ ggplot(data=voltage_tidy[!is.na(voltage_tidy$VoltsHalf), ],
     theme_bw(base_family= 'Helvetica') +
     theme(legend.position="bottom") +
     xlab("") +
-    geom_hline(yintercept = voltageHigh, color='blue') +
-    geom_hline(yintercept = voltageLow, color='blue') +
+    geom_hline(yintercept = voltageHigh, color='blue',alpha=0.5) +
+    geom_hline(yintercept = voltageLow, color='blue',alpha=0.5) +
     ggtitle("Boxplot of Voltage by hour" ) 
 ```
 
@@ -1014,6 +1016,44 @@ by hour.
 
 We can see there seems to be one metering point with high voltage which is
 consistently above the other voltage readings.
+
+```{r ROCKWALL Meter Load Profiles for Voltage}
+# most varience
+rockwall <- subset(voltage_tidy,substationName == "ROCKWALL")
+t <- ggplot(data=subset(rockwall,!is.na(VoltsHalf)), aes(x=hm, y=VoltsHalf)) +
+  geom_line(alpha=1/1, color=factor(rockwall$meter)) + 
+  facet_wrap(~ dtReadDay, ncol = 3) +
+  scale_x_discrete(breaks=c("00:00","06:00","12:00","18:00","23:00")) +
+  xlab("hr:min") +
+  ylab("voltage") +
+  theme_bw(base_family= 'Helvetica')  +
+  theme(axis.text.x = element_text(angle = -90, hjust = 0)) +
+  ggtitle(paste("ROCKWALL Voltage by Time (hour:min)\nmeters:", 
+                as.character(length(unique(rockwall$meter))))) 
+
+  grid.text(paste("Variance: ", as.character(var(rockwall$VoltsHalf))))
+ 
+ggdraw(add_sub(t, "This is an annotation.\nAnnotations can span multiple lines."))
+
+```
+
+
+```{r HILLSBORO Meter Load Profiles for Voltage}
+# least varience 
+hillsboro <- subset(voltage_tidy,substationName == "HILLSBORO")
+ggplot(data=subset(hillsboro,!is.na(VoltsHalf)), aes(x=hm, y=VoltsHalf)) +
+  geom_line(alpha=1/1, color=factor(hillsboro$meter)) + 
+  facet_wrap(~ dtReadDay, ncol = 3) +
+  scale_x_discrete(breaks=c("00:00","06:00","12:00","18:00","23:00")) +
+  xlab("hr:min") +
+  ylab("voltage") +
+  theme_bw(base_family= 'Helvetica')  +
+  theme(axis.text.x = element_text(angle = -90, hjust = 0)) +
+  ggtitle(paste("ROCKWALL Voltage by Time (hour:min)\nmeters:", 
+                as.character(length(unique(hillsboro$meter)))))
+
+var(hillsboro$VoltsHalf)
+```
 
 ```{r Summary per meter}
 meter_summary_volts <- subset(voltage_tidy,substationName == "DALLAS") %>%
@@ -1869,6 +1909,10 @@ Counts of the voltage instances in each bucketed range.
 summary(voltage_tidy$voltage.bucket)
 ```
 
+
+
+
+
 ```{r Summary Of Voltage Bucket Table Data By Day - substation_bucket_review}
 # Review the total counts for voltage in each substation this goes with scatter plots 
 # in bivar. or multivariate data
@@ -1912,6 +1956,41 @@ kable(substation_bucket_day_review)
 
 ```
 
+Counts of the voltage instances in each bucketed range by hour by substations
+```{r Voltage Bucket Summary - GOOD ONE}
+summary(voltage_tidy$voltage.bucket)
+
+substation_bucket_day_hour <-
+  voltage_tidy %>% 
+    group_by(dtReadDay, substationName, h, voltage.bucket) %>% 
+    summarise(count = n())  %>% 
+        arrange(dtReadDay, substationName, h, voltage.bucket)
+
+```
+
+Create a line graph of voltages vs. h so that each voltage.bucket is a line tracking the median user voltage counts across hour. 
+
+
+```{r}
+ggplot(aes(x = h, y = count),
+       data = subset(substation_bucket_day_hour, !is.na(voltage.bucket))) +
+       geom_line(aes(color=voltage.bucket), stat='summary', fun.y=mean) +
+       geom_line(stat = 'summary' , fun.y = mean, linetype=2) +
+       facet_wrap(~substationName, scales = "free_y") +
+       ggtitle("Median Voltage Counts By Hour")
+
+
+ggplot(aes(x = h, y = count),
+       data = subset(substation_bucket_day_hour, 
+                     !is.na(voltage.bucket) & 
+                     substationName =="DALLAS")) +
+       geom_line(aes(color=voltage.bucket), stat='summary', fun.y=mean) +
+       geom_line(stat = 'summary' , fun.y = mean, linetype=2) +
+       facet_wrap(~dtReadDay, scales = "free_y") +
+       ggtitle("Median Voltage Counts By Hour\n Dallas Substation")
+
+```
+
 
 #### Compare Voltage and Power Factor Range Counts
 ```{r Totalize up the pf ranges}
@@ -1925,7 +2004,34 @@ powerfactor_ranges_day <-
 # pivot the data for easy review
 powerfactor_ranges_day <- spread(subset(powerfactor_ranges_day, !is.na(pf.range)), pf.range, count)
 
+summary(subset(powerfactor_tidy, substationName=="DALLAS" & dtReadDay==""))
+
 ```
+
+```{r POWER FACTOR BUCKETS RANGE}
+ggplot(aes(x=h, y=pf), data=subset(powerfactor_tidy)) +
+    geom_line(aes(color=pf.range), stat='summary', fun.y=mean) +
+    geom_line(stat = 'summary' , fun.y = mean, linetype=2) +
+    ggtitle("power factor vs hour")  +
+    geom_line(aes(color = pf.range))
+
+
+ggplot(aes(x=h, y=pf), data=subset(powerfactor_tidy,
+                     !is.na(pf.range) & 
+                     substationName =="DALLAS")) +
+    geom_line(aes(color=pf.range), stat='summary', fun.y=mean) +
+    geom_line(stat = 'summary' , fun.y = mean, linetype=2) +
+    ggtitle("power factor vs hour\nDallas Substation")  +
+    geom_line(aes(color = pf.range)) +
+    facet_wrap(~dtReadDay, scales = "free_y") 
+
+# Ratio of LAGGING TO LEADING
+ggplot(aes(x = age, y = female/male),
+       data = pf.fc_by_age_gender.wide) +
+       geom_line() +
+       geom_hline(yintercept=1, linetype=2, alpha=0.3)
+```
+
 
 ```{r DEAD END}
 range_counts <- left_join(powerfactor_ranges_day,
@@ -2032,7 +2138,7 @@ pfhour <-
     scale_y_continuous(limits = c(0.90, 1.10),
                         breaks=c(0.92,.94,.96,.98,1,1.02,1.04,1.06,1.08),
                         labels=c(".92",".94", ".96", ".98","1", ".98", ".96",".94",".92")) +  
-  geom_hline(yintercept=1) +
+  geom_hline(yintercept=1,alpha=0.3) +
   ylab("power factor") +
   theme_bw(base_family= 'Helvetica') +
   theme(legend.position="none")
@@ -2481,6 +2587,8 @@ ggplot(data = powerfactor_tidy, aes(x = h, y = pfChart, color=desc)) +
   xlab('hour') +
   theme_bw(base_family= 'Helvetica') +
   theme(legend.title = element_blank())
+
+
 ```
 
 
@@ -2488,6 +2596,18 @@ ggplot(data = powerfactor_tidy, aes(x = h, y = pfChart, color=desc)) +
 Total
 
 # Reflection
+
+I was interested in finding substations where the voltage has high varience and
+to see what affect this has on the power factor.  When reviewing this data
+day to day variations are affected by the voltage requlators to help reduce the
+voltage on the transmission lines.  A voltage load profile with less varience
+should have a better power factor (what does better mean, 0.98-1, lagging or leading?[2]
+
+Identify which days have VVC (Volt Var Contol On).
+3/2 off 
+3/3 On
+--- Walter Has these notes.
+
 The section explains any important decisions in the analysis and how those 
 decisions affected the analysis.
 
@@ -2517,8 +2637,14 @@ least one idea or question for future work.
 
 The section provides a rich and well-written reflection of 
   * struggles
-    * Date Formatting
-    * Exploring for relationships
+    * Date Formatting without lubridate was one mistake or line of code 
+    which would not run.
+    * Exploring for relationships - In industry standards it is typically regarded
+    as controling voltage with less varience helps keep the power factor with in
+    nominal ranges.  When looking for the correlation between power factor and
+    votlage we really can not see one most likely because the voltage is in
+    a narrow range, and power factor is more affected by kw and mvars since it
+    is a ratio of real / active power.
 
   * successes
     * MegaWatt vs MegaVar
@@ -2534,6 +2660,9 @@ The section poses ideas or questions for future work.
   * 12 month analysis of trends
   * seasonal trends
   * collect more power factor data down to 15min intervals
+  * examining the varience of all the load shapes for each
+  variable.
+  * revewing the load shape for all meters on every substation.
 
 
 # Equations
@@ -2569,7 +2698,7 @@ P(kW) = √3 × PF × I(A) × VL-L(V) / 1000
 P, Real Power - kW -> PMWD3D (MW)
 Real power is kilowatts, in the initial dataset this is represented as PMWD3D.
 
-S, Apparent Power    
+S, Apparent Power    (volt amperess)
 We will be solving for apparent power.
 
 Q, Reactive Power 
@@ -2595,7 +2724,8 @@ $$Power Factor =\frac{kW}{\sqrt{kW^2 + (kVAR Delieverd - kVAR Received)^2}}$$
 * Delivered VARs - Received VARs   < 0 Leading
 
 # References
-https://en.wikipedia.org/wiki/Power_factor  
+[1] https://en.wikipedia.org/wiki/Power_factor 
+[2] https://en.wikipedia.org/wiki/Distribution_management_system#Volt-VAR_Control_.28VVC.29
 https://en.wikipedia.org/wiki/Ohm%27s_law  
 https://en.wikipedia.org/wiki/Volt-ampere_reactive  
 http://www.statpower.net/Content/310/R%20Stuff/SampleMarkdown.html  
@@ -2613,4 +2743,43 @@ http://tutorials.iq.harvard.edu/R/Rgraphics/Rgraphics.html
 http://kbroman.org/knitr_knutshell/pages/Rmarkdown.html
 http://data.princeton.edu/R/linearModels.html 
 https://statistics.laerd.com/statistical-guides/pearson-correlation-coefficient-statistical-guide.php
+
+```{r}
+
+qwerty <- ggplot(data=subset(powerfactor_tidy, substationName=="DALLAS"), aes(x=h)) +
+  geom_point(aes(y=mw,colour="mw")) +
+  geom_line(linetype=2, aes(y=va, colour="va")) +
+  geom_line(aes(y=mvar.delivered, colour="mvar.delivered")) +
+  geom_line(aes(y=mvar.received, colour="mvar.received")) +
+  scale_colour_manual("", 
+                      breaks = c("mw", "va", "mvar.delivered", "mvar.received"),
+                      values = c("mw"="red", 
+                                 "va"="orange", 
+                                 "mvar.delivered"="yellow", 
+                                 "mvar.received"="blue", 
+                                 "pf"="black")) +
+  scale_y_continuous(limits= c(-5, 15)) +
+  facet_wrap(substationName~dtReadDay, ncol=3, scales = "free_x") +
+  ylab("power factor") +
+  theme_bw(base_family= 'Helvetica') 
+
+ggplot(data=subset(powerfactor_tidy, substationName=="DALLAS"), aes(x=h))+
+  geom_point(aes(y=mw,colour="mw")) +
+  geom_line(linetype=2, aes(y=va, colour="va")) +
+  geom_line(aes(y=mvar.delivered, colour="mvar.delivered")) +
+  geom_line(aes(y=mvar.received, colour="mvar.received")) +
+  geom_line(aes(y=pfChart), colour='black') +
+  facet_grid(.~dtReadDay,scales="free_y") +
+  scale_colour_manual("", 
+                      breaks = c("mw", "va", "mvar.delivered", "mvar.received","pfChart"),
+                      values = c("mw"="green", 
+                                 "va"="blue", 
+                                 "mvar.delivered"="orange", 
+                                 "mvar.received"="violet", 
+                                 "pfChart"="black"))  
+  
+
+
+
+```
 
