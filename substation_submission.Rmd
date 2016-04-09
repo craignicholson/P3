@@ -60,12 +60,8 @@ are often interested in the power factor of a load as one of the factors that
 affect the efficiency of power transmission." [1]
 
 #### Definitions
-
 Power factors are usually stated as "leading" or "lagging" to show the sign of the
 phase angle. Capacitive loads are **leading** (current leads voltage) and supply power, and inductive loads are **lagging** (current lags voltage) and consume power.
-
-A negative power factor (0 to -1) can result from returning power to the source, such as in the case of a building fitted with solar panels when their power is not being fully utilised within the building and the surplus is fed back into the supply.[1]
-
 
 ```{r Setup knitr, echo=FALSE}
 knitr::opts_chunk$set(include=TRUE, echo=FALSE, warning=FALSE, message=FALSE)
