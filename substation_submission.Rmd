@@ -22,7 +22,7 @@ between power factor and voltage.
 ## Introduction
 Electric utilities collect meter readings in time intervals in various units. 
 The intervals can be from 1 minute to 60 minute intervals collecing kW, kWh, 
-VARh, volts.  An utility has to maintain a specified range for voltage across
+VARh, volts.  An utility needs to maintain a specified range for voltage across
 their electric network.  When voltage is too low brown outs or electric motors
 may fail to work and when voltage is too high appliances and equiment can 
 overheat, burn up, and possibly explode.
@@ -60,7 +60,6 @@ are often interested in the power factor of a load as one of the factors that
 affect the efficiency of power transmission." [1]
 
 #### Definitions
-Since the units are consistent, the power factor is by definition a dimensionless number between −1 and 1. When power factor is equal to 0, the energy flow is entirely reactive and stored energy in the load returns to the source on each cycle. When the power factor is 1, all the energy supplied by the source is consumed by the load.
 
 Power factors are usually stated as "leading" or "lagging" to show the sign of the
 phase angle. Capacitive loads are **leading** (current leads voltage) and supply power, and inductive loads are **lagging** (current lags voltage) and consume power.
