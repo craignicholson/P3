@@ -148,6 +148,21 @@ substations <- read.csv("substations_list_anon.csv")
 #   prettyName: string of full substation name
 ```
 
+
+```{r DELETE ALL DAYS EXCEPT ONE DAY, include=FALSE}
+# THIS CAN BE DONE LAST ... OR IN THE INDIVIDUAL PLOTS
+# drop all dates but one day, uses the d(date) parameter
+powerfactor_raw_oneday <-  subset(powerfactor_tidy, 
+                                  as.Date(powerfactor_tidy$dtReadDay) 
+                                  == as.Date(report_date))
+
+# drop/remove all dates but one day, using the report_data variable
+# for this first analaysis, uses the d(date) parameter
+voltage_raw_oneday <-  subset(voltage_tidy, as.Date(voltage_tidy$dtReadDay) 
+                       == as.Date(report_date))
+```
+
+
 ```{r Remove Duplicates from voltage_raw and powerfactor_raw}
 voltage_clean_all <- voltage_raw  %>% 
   group_by(readdate,Voltage, substationName, meter) %>% 
@@ -164,7 +179,8 @@ powerfactor_clean_all <- powerfactor_raw  %>%
 powerfactor_clean_all$dtReadDate <- parse_date_time(powerfactor_clean_all$ReadDate, 
                                             orders="ymd hms")
 # Roll back 15min to accomodate interval ending and hours
-powerfactor_clean_all$dtReadDate  <- powerfactor_clean_all$dtReadDate  - minutes(10)
+# The lowest common denominator we will support is hour
+# powerfactor_clean_all$dtReadDate  <- powerfactor_clean_all$dtReadDate  - minutes(10)
 
 # Add day and hour, so we can group by day or hour
 powerfactor_clean_all$dtReadDay  <- floor_date(powerfactor_clean_all$dtReadDate,"day")
@@ -242,7 +258,7 @@ powerfactor_clean_all <- left_join(powerfactor_clean_all, substations,
 powerfactor <- spread(powerfactor_clean_all, name, ReadValue)
 
 # rename the columns
-# TODO: If the pivot cols are missing code fails
+# TODO: If the pivot cols are missing code fails, need to check for empty data frame
 powerfactor <- dplyr::rename(powerfactor, 
                   mw=PMWD3D, 
                   mvar.delivered=PMQD3D, 
@@ -258,13 +274,13 @@ powerfactor <- dplyr::rename(powerfactor,
 # Subtracting 15mins from the date will only work for intervals < than one hour
 # Solved using lubridate, as.Date and POSXt was a pain.
 powerfactor$dtReadDate <- parse_date_time(powerfactor$ReadDate, orders="ymd hms")
-powerfactor$dtReadDate <- powerfactor$dtReadDate - minutes(10)
+#powerfactor$dtReadDate <- powerfactor$dtReadDate - minutes(10)
 powerfactor$dtReadDay  <- floor_date(powerfactor$dtReadDate,"day")
 powerfactor$h <- hour(powerfactor$dtReadDate)
 # add back the 15min to match the 15min intervals for voltage
-powerfactor$hm <- format(as.POSIXct(powerfactor$dtReadDate + minutes(15), 
-                           format="%Y-%m-%d %H:%M"),
-                           format="%H:%M")
+# powerfactor$hm <- format(as.POSIXct(powerfactor$dtReadDate + minutes(15), 
+#                            format="%Y-%m-%d %H:%M"),
+#                            format="%H:%M")
 
 # Convert hour numeric, we will do the same for v_dedupe
 # so we can join these columns
@@ -321,11 +337,6 @@ powerfactor$mvarsquared <- powerfactor$mvar^2
 
 ```
 
-```{r Power Factor - Map which hours are Lagging and Leading in the dataframe}
-  #hours
-  #maybe some other value too... which I can do stats on... 
-```
-
 ```{r Power Factor Trim Substation Name}
 # Trim and Upper the Substation Name to scrub the data, some text may have 
 # white space around the characters
@@ -342,7 +353,7 @@ powerfactor_tidy <- powerfactor[c("substationName",
                               "dtReadDate",
                               "dtReadDay",
                               "h", 
-                              "hm", 
+                              #"hm", 
                               "mw",
                               "mvar.delivered",
                               "mvar.received",
@@ -466,18 +477,6 @@ voltage_tidy <- arrange(voltage_tidy, substationName, meter, dtReadDate)
 
 
 
-```{r DELETE ALL DAYS EXCEPT ONE DAY, include=FALSE}
-# THIS CAN BE DONE LAST ... OR IN THE INDIVIDUAL PLOTS
-# drop all dates but one day, uses the d(date) parameter
-powerfactor_raw_oneday <-  subset(powerfactor_tidy, 
-                                  as.Date(powerfactor_tidy$dtReadDay) 
-                                  == as.Date(report_date))
-
-# drop/remove all dates but one day, using the report_data variable
-# for this first analaysis, uses the d(date) parameter
-voltage_raw_oneday <-  subset(voltage_tidy, as.Date(voltage_tidy$dtReadDay) 
-                       == as.Date(report_date))
-```
 
 
 
@@ -654,7 +653,7 @@ height = length(unique(voltage_tidy$substationName))
 height = height / 4
 ```
 
-```{r Univariate_Plots Voltage Hist Facet Substation free scales, fig.width=12, fig.height=len}
+```{r Univariate_Plots Voltage Hist Facet Substation free scales, fig.width=12, fig.height=height}
 ggplot(data = voltage_tidy,aes(x = VoltsHalf)) + 
   geom_histogram(binwidth=0.5, color = 'black', fill = '#333333') + 
   theme_bw(base_family= 'Helvetica') +
@@ -664,6 +663,19 @@ ggplot(data = voltage_tidy,aes(x = VoltsHalf)) +
                 "days combined")) +
   xlab("voltage")
 ```
+
+
+```{r Univariate_Plots Voltage Hist Facet by Date for Austin free scales, fig.width=12, fig.height=height}
+ggplot(data = voltage_tidy[voltage_tidy$substationName =='AUSTIN',],aes(x = VoltsHalf)) + 
+  geom_histogram(binwidth=0.5, color = 'black', fill = '#333333') + 
+  theme_bw(base_family= 'Helvetica') +
+  facet_wrap(~dtReadDay, ncol = 4, scales = 'free') +
+  ggtitle(paste("AUSTIN - Histogram of Voltage By Day (bin=0.5)\n",
+                as.character(length(unique(voltage_tidy$dtReadDate))),
+                "unique intervals")) +
+  xlab("voltage")
+```
+
 
 ## Power Factor
 ```{r Univariate_Plots Power Factor Histogram}
@@ -742,7 +754,7 @@ summary(powerfactor_tidy$mvarsquared)
 
 ```
 
-```{r Univariate_Plots MW Facet Hour and Substation, fig.width=12, fig.height=12}
+```{r Univariate_Plots histogram MW Facet Hour and Substation, fig.width=12, fig.height=12}
 ggplot(data = powerfactor_tidy,aes(x = mw)) + 
   geom_histogram(binwidth=0.25, color = 'black', fill = '#333333') + 
   theme_bw(base_family= 'Helvetica') +
@@ -840,7 +852,7 @@ New variables where created for these datasets:
 
 ### Of the features you investigated, were there any unusual distributions? 
 
-Austin and Dallas have bimodel distibutions of voltage.
+Austin and Dallas have bimodel distibutions of voltage for the days being reviewed.
 
 ```{r willamsport and mtpleasant hist , fig.width=12, fig.height=6}
 austin <-
@@ -858,6 +870,11 @@ dallas <-ggplot(data = subset(voltage_tidy, substationName=="DALLAS"),aes(x = Vo
 
 grid.arrange(austin, dallas, ncol=2)
 
+
+austin + facet_wrap(~dtReadDay)
+dallas + facet_wrap(~dtReadDay)
+
+  
 ```
 
 The long leading tail on the voltage histogram, has a larger range in the data in the lower range than in the upper range.
@@ -1026,9 +1043,9 @@ t <- ggplot(data=subset(rockwall,!is.na(VoltsHalf)), aes(x=hm, y=VoltsHalf)) +
   ggtitle(paste("ROCKWALL Voltage by Time (hour:min)\nmeters:", 
                 as.character(length(unique(rockwall$meter))))) 
 
-  grid.text(paste("Variance: ", as.character(var(rockwall$VoltsHalf))))
- 
-ggdraw(add_sub(t, "This is an annotation.\nAnnotations can span multiple lines."))
+
+# grid.text(paste("Variance: ", as.character(var(rockwall$VoltsHalf))))
+# ggdraw(add_sub(t, "This is an annotation.\nAnnotations can span multiple lines."))
 
 ```
 
@@ -1999,7 +2016,8 @@ powerfactor_ranges_day <-
 # pivot the data for easy review
 powerfactor_ranges_day <- spread(subset(powerfactor_ranges_day, !is.na(pf.range)), pf.range, count)
 
-summary(subset(powerfactor_tidy, substationName=="DALLAS" & dtReadDay==""))
+#summary(subset(powerfactor_tidy, substationName=="DALLAS" & dtReadDay==""))
+summary(subset(powerfactor_tidy, substationName=="DALLAS"))
 
 ```
 
@@ -2021,10 +2039,10 @@ ggplot(aes(x=h, y=pf), data=subset(powerfactor_tidy,
     facet_wrap(~dtReadDay, scales = "free_y") 
 
 # Ratio of LAGGING TO LEADING
-ggplot(aes(x = age, y = female/male),
-       data = pf.fc_by_age_gender.wide) +
-       geom_line() +
-       geom_hline(yintercept=1, linetype=2, alpha=0.3)
+# ggplot(aes(x = age, y = female/male),
+#        data = pf.fc_by_age_gender.wide) +
+#        geom_line() +
+#        geom_hline(yintercept=1, linetype=2, alpha=0.3)
 ```
 
 
@@ -2152,11 +2170,11 @@ go below 0.98 lagging or leading.  This could help us change the system paramete
 * Create model for each substation to predict when power factor goes below 0.98 based on the
 hourly readings.  If we can predict at a minimum 2 hours ahead this would be idea. The initial
 
-```{r Linear Model using powerfactor_sort }
+```{r Linear Model using powerfactor_tidy }
 # pf = kw / SQRT(kw^2 + kvar^2)  
 # m1 <- lm(I(log(price)) ~ I(carat^(1/3)), data = powerfactor_columns_sort)
 # how about adding voltage as well... 
-m1 <- lm(pf ~ I(sqrt(mw)), data = powerfactor_sort)
+m1 <- lm(pf ~ I(sqrt(mw)), data = powerfactor_tidy)
 m2 <- update(m1, ~ . + mw)
 m3 <- update(m1, ~ . + mvar)
 m4 <- update(m2, ~ . + h)
@@ -2316,110 +2334,110 @@ ggplot(data=summary_total[!is.na(summary_total$pfChart), ],
 # This plot is an example of trying to view all datapoints in the
 # required customers scope.  Going to try and split this into
 # groups
-ts <- summary_total_day
-subsOne <-  ts[(ts$substationName %in% substations[1:6,2]),]
-subsTwo <-  ts[(ts$substationName %in% substations[7:13,2]),]
-subsThree <-  ts[(ts$substationName %in% substations[14:20,2]),]
-subsFour <- ts[(ts$substationName %in% substations[21:24,2]),]
-
-# TODO - It would be nice to reduce some code here
-plot1 <- ggplot(data=subsOne[!is.na(subsOne$pfc.median), ], 
-       aes(x=pfc.median, y=v.median,color=substationName)) +
-    geom_point(size=3) + 
-    geom_text(aes(label=substationName),hjust=-0.2, vjust=0.5,size=3) +
-    geom_errorbar(aes(ymin = v.min, ymax = v.max), width = 0.0025,alpha=1/2) + 
-    geom_errorbarh(aes(xmin = pfc.min, xmax = pfc.max,  height = .4),alpha=1/2) +
-    scale_y_continuous(limits = c(110, 130)) +
-    scale_x_continuous(limits = c(0.94, 1.06),
-                       breaks=c(0.92,.94,.96,.98,1,1.02,1.04,1.06,1.08),
-                       labels=c(".92",".94", ".96", ".98","1", ".98", ".96",".94",".92")) +
-    geom_segment(aes(x = 0.98, y = voltageLow,  xend = 0.98, 
-                     yend = voltageHigh), size=0.15,colour='black') + 
-    geom_segment(aes(x = 1.02, y = voltageLow,  xend = 1.02, 
-                     yend = voltageHigh), size=0.15,colour='black') + 
-    geom_segment(aes(x = 0.98, y = voltageHigh, xend = 1.02, 
-                     yend = voltageHigh), size=0.05,colour='black') + 
-    geom_segment(aes(x = 0.98, y = voltageLow,  xend = 1.02, 
-                     yend = voltageLow), size=0.15,colour='black')  +
-    ylab("median voltage") +
-    xlab("median power factor") +  
-    theme_bw(base_family= 'Helvetica') +
-    theme(legend.position="bottom") +
-    theme(legend.title=element_blank())
-
-plot2 <- ggplot(data=subsTwo[!is.na(subsTwo$pfc.median), ], 
-       aes(x=pfc.median, y=v.median,color=substationName)) +
-    geom_point(size=3) + 
-    geom_text(aes(label=substationName),hjust=-0.2, vjust=0.5,size=3) +
-    geom_errorbar(aes(ymin = v.min, ymax = v.max), width = 0.0025,alpha=1/2) + 
-    geom_errorbarh(aes(xmin = pfc.min, xmax = pfc.max,  height = .4),alpha=1/2) +
-    scale_y_continuous(limits = c(110, 130)) +
-    scale_x_continuous(limits = c(0.94, 1.06),
-                       breaks=c(0.92,.94,.96,.98,1,1.02,1.04,1.06,1.08),
-                       labels=c(".92",".94", ".96", ".98","1", ".98", ".96",".94",".92")) +
-    geom_segment(aes(x = 0.98, y = voltageLow,  xend = 0.98, 
-                     yend = voltageHigh), size=0.15,colour='black') + 
-    geom_segment(aes(x = 1.02, y = voltageLow,  xend = 1.02, 
-                     yend = voltageHigh), size=0.15,colour='black') + 
-    geom_segment(aes(x = 0.98, y = voltageHigh, xend = 1.02, 
-                     yend = voltageHigh), size=0.05,colour='black') + 
-    geom_segment(aes(x = 0.98, y = voltageLow,  xend = 1.02, 
-                     yend = voltageLow), size=0.15,colour='black')  +
-    ylab("median voltage") +
-    xlab("median power factor") +  
-    theme_bw(base_family= 'Helvetica') +
-    theme(legend.position="bottom")+
-    theme(legend.title=element_blank())
-
-plot3 <- ggplot(data=subsThree[!is.na(subsThree$pfc.median), ], 
-       aes(x=pfc.median, y=v.median,color=substationName)) +
-    geom_point(size=3) + 
-    geom_text(aes(label=substationName),hjust=-0.2, vjust=0.5,size=3) +
-    geom_errorbar(aes(ymin = v.min, ymax = v.max), width = 0.0025,alpha=1/2) + 
-    geom_errorbarh(aes(xmin = pfc.min, xmax = pfc.max,  height = .4),alpha=1/2) +
-    scale_y_continuous(limits = c(110, 130)) +
-    scale_x_continuous(limits = c(0.94, 1.06),
-                       breaks=c(0.92,.94,.96,.98,1,1.02,1.04,1.06,1.08),
-                       labels=c(".92",".94", ".96", ".98","1", ".98", ".96",".94",".92")) +
-    geom_segment(aes(x = 0.98, y = voltageLow,  xend = 0.98, 
-                     yend = voltageHigh), size=0.15,colour='black') + 
-    geom_segment(aes(x = 1.02, y = voltageLow,  xend = 1.02, 
-                     yend = voltageHigh), size=0.15,colour='black') + 
-    geom_segment(aes(x = 0.98, y = voltageHigh, xend = 1.02, 
-                     yend = voltageHigh), size=0.05,colour='black') + 
-    geom_segment(aes(x = 0.98, y = voltageLow,  xend = 1.02, 
-                     yend = voltageLow), size=0.15,colour='black')  +
-    ylab("median voltage") +
-    xlab("median power factor") +  
-    theme_bw(base_family= 'Helvetica') +
-    theme(legend.position="bottom") +
-    theme(legend.title=element_blank())
-
-plot4 <- ggplot(data=subsFour[!is.na(subsFour$pfc.median), ], 
-       aes(x=pfc.median, y=v.median,color=substationName)) +
-    geom_point(size=3) + 
-    geom_text(aes(label=substationName),hjust=-0.2, vjust=0.5,size=3) +
-    geom_errorbar(aes(ymin = v.min, ymax = v.max), width = 0.0025,alpha=1/2) + 
-    geom_errorbarh(aes(xmin = pfc.min, xmax = pfc.max,  height = .4),alpha=1/2) +
-    scale_y_continuous(limits = c(110, 130)) +
-    scale_x_continuous(limits = c(0.94, 1.06),
-                       breaks=c(0.92,.94,.96,.98,1,1.02,1.04,1.06,1.08),
-                       labels=c(".92",".94", ".96", ".98","1", ".98", ".96",".94",".92")) +
-    geom_segment(aes(x = 0.98, y = voltageLow,  xend = 0.98, 
-                     yend = voltageHigh), size=0.15,colour='black') + 
-    geom_segment(aes(x = 1.02, y = voltageLow,  xend = 1.02, 
-                     yend = voltageHigh), size=0.15,colour='black') + 
-    geom_segment(aes(x = 0.98, y = voltageHigh, xend = 1.02, 
-                     yend = voltageHigh), size=0.05,colour='black') + 
-    geom_segment(aes(x = 0.98, y = voltageLow,  xend = 1.02, 
-                     yend = voltageLow), size=0.15,colour='black')  +
-    ylab("median voltage") +
-    xlab("median power factor") +  
-    theme_bw(base_family= 'Helvetica') +
-    theme(legend.position="bottom") +
-    theme(legend.title=element_blank())
-
-grid.arrange(plot1, plot2, plot3, plot4, ncol = 2)
+# ts <- summary_total_day
+# subsOne <-  ts[(ts$substationName %in% substations[1:6,2]),]
+# subsTwo <-  ts[(ts$substationName %in% substations[7:13,2]),]
+# subsThree <-  ts[(ts$substationName %in% substations[14:20,2]),]
+# subsFour <- ts[(ts$substationName %in% substations[21:24,2]),]
+# 
+# # TODO - It would be nice to reduce some code here
+# plot1 <- ggplot(data=subsOne[!is.na(subsOne$pfc.median), ], 
+#        aes(x=pfc.median, y=v.median,color=substationName)) +
+#     geom_point(size=3) + 
+#     geom_text(aes(label=substationName),hjust=-0.2, vjust=0.5,size=3) +
+#     geom_errorbar(aes(ymin = v.min, ymax = v.max), width = 0.0025,alpha=1/2) + 
+#     geom_errorbarh(aes(xmin = pfc.min, xmax = pfc.max,  height = .4),alpha=1/2) +
+#     scale_y_continuous(limits = c(110, 130)) +
+#     scale_x_continuous(limits = c(0.94, 1.06),
+#                        breaks=c(0.92,.94,.96,.98,1,1.02,1.04,1.06,1.08),
+#                        labels=c(".92",".94", ".96", ".98","1", ".98", ".96",".94",".92")) +
+#     geom_segment(aes(x = 0.98, y = voltageLow,  xend = 0.98, 
+#                      yend = voltageHigh), size=0.15,colour='black') + 
+#     geom_segment(aes(x = 1.02, y = voltageLow,  xend = 1.02, 
+#                      yend = voltageHigh), size=0.15,colour='black') + 
+#     geom_segment(aes(x = 0.98, y = voltageHigh, xend = 1.02, 
+#                      yend = voltageHigh), size=0.05,colour='black') + 
+#     geom_segment(aes(x = 0.98, y = voltageLow,  xend = 1.02, 
+#                      yend = voltageLow), size=0.15,colour='black')  +
+#     ylab("median voltage") +
+#     xlab("median power factor") +  
+#     theme_bw(base_family= 'Helvetica') +
+#     theme(legend.position="bottom") +
+#     theme(legend.title=element_blank())
+# 
+# plot2 <- ggplot(data=subsTwo[!is.na(subsTwo$pfc.median), ], 
+#        aes(x=pfc.median, y=v.median,color=substationName)) +
+#     geom_point(size=3) + 
+#     geom_text(aes(label=substationName),hjust=-0.2, vjust=0.5,size=3) +
+#     geom_errorbar(aes(ymin = v.min, ymax = v.max), width = 0.0025,alpha=1/2) + 
+#     geom_errorbarh(aes(xmin = pfc.min, xmax = pfc.max,  height = .4),alpha=1/2) +
+#     scale_y_continuous(limits = c(110, 130)) +
+#     scale_x_continuous(limits = c(0.94, 1.06),
+#                        breaks=c(0.92,.94,.96,.98,1,1.02,1.04,1.06,1.08),
+#                        labels=c(".92",".94", ".96", ".98","1", ".98", ".96",".94",".92")) +
+#     geom_segment(aes(x = 0.98, y = voltageLow,  xend = 0.98, 
+#                      yend = voltageHigh), size=0.15,colour='black') + 
+#     geom_segment(aes(x = 1.02, y = voltageLow,  xend = 1.02, 
+#                      yend = voltageHigh), size=0.15,colour='black') + 
+#     geom_segment(aes(x = 0.98, y = voltageHigh, xend = 1.02, 
+#                      yend = voltageHigh), size=0.05,colour='black') + 
+#     geom_segment(aes(x = 0.98, y = voltageLow,  xend = 1.02, 
+#                      yend = voltageLow), size=0.15,colour='black')  +
+#     ylab("median voltage") +
+#     xlab("median power factor") +  
+#     theme_bw(base_family= 'Helvetica') +
+#     theme(legend.position="bottom")+
+#     theme(legend.title=element_blank())
+# 
+# plot3 <- ggplot(data=subsThree[!is.na(subsThree$pfc.median), ], 
+#        aes(x=pfc.median, y=v.median,color=substationName)) +
+#     geom_point(size=3) + 
+#     geom_text(aes(label=substationName),hjust=-0.2, vjust=0.5,size=3) +
+#     geom_errorbar(aes(ymin = v.min, ymax = v.max), width = 0.0025,alpha=1/2) + 
+#     geom_errorbarh(aes(xmin = pfc.min, xmax = pfc.max,  height = .4),alpha=1/2) +
+#     scale_y_continuous(limits = c(110, 130)) +
+#     scale_x_continuous(limits = c(0.94, 1.06),
+#                        breaks=c(0.92,.94,.96,.98,1,1.02,1.04,1.06,1.08),
+#                        labels=c(".92",".94", ".96", ".98","1", ".98", ".96",".94",".92")) +
+#     geom_segment(aes(x = 0.98, y = voltageLow,  xend = 0.98, 
+#                      yend = voltageHigh), size=0.15,colour='black') + 
+#     geom_segment(aes(x = 1.02, y = voltageLow,  xend = 1.02, 
+#                      yend = voltageHigh), size=0.15,colour='black') + 
+#     geom_segment(aes(x = 0.98, y = voltageHigh, xend = 1.02, 
+#                      yend = voltageHigh), size=0.05,colour='black') + 
+#     geom_segment(aes(x = 0.98, y = voltageLow,  xend = 1.02, 
+#                      yend = voltageLow), size=0.15,colour='black')  +
+#     ylab("median voltage") +
+#     xlab("median power factor") +  
+#     theme_bw(base_family= 'Helvetica') +
+#     theme(legend.position="bottom") +
+#     theme(legend.title=element_blank())
+# 
+# plot4 <- ggplot(data=subsFour[!is.na(subsFour$pfc.median), ], 
+#        aes(x=pfc.median, y=v.median,color=substationName)) +
+#     geom_point(size=3) + 
+#     geom_text(aes(label=substationName),hjust=-0.2, vjust=0.5,size=3) +
+#     geom_errorbar(aes(ymin = v.min, ymax = v.max), width = 0.0025,alpha=1/2) + 
+#     geom_errorbarh(aes(xmin = pfc.min, xmax = pfc.max,  height = .4),alpha=1/2) +
+#     scale_y_continuous(limits = c(110, 130)) +
+#     scale_x_continuous(limits = c(0.94, 1.06),
+#                        breaks=c(0.92,.94,.96,.98,1,1.02,1.04,1.06,1.08),
+#                        labels=c(".92",".94", ".96", ".98","1", ".98", ".96",".94",".92")) +
+#     geom_segment(aes(x = 0.98, y = voltageLow,  xend = 0.98, 
+#                      yend = voltageHigh), size=0.15,colour='black') + 
+#     geom_segment(aes(x = 1.02, y = voltageLow,  xend = 1.02, 
+#                      yend = voltageHigh), size=0.15,colour='black') + 
+#     geom_segment(aes(x = 0.98, y = voltageHigh, xend = 1.02, 
+#                      yend = voltageHigh), size=0.05,colour='black') + 
+#     geom_segment(aes(x = 0.98, y = voltageLow,  xend = 1.02, 
+#                      yend = voltageLow), size=0.15,colour='black')  +
+#     ylab("median voltage") +
+#     xlab("median power factor") +  
+#     theme_bw(base_family= 'Helvetica') +
+#     theme(legend.position="bottom") +
+#     theme(legend.title=element_blank())
+# 
+# grid.arrange(plot1, plot2, plot3, plot4, ncol = 2)
 
 ```
 
